@@ -1,31 +1,32 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -51,7 +52,7 @@ typedef struct _XENBUS_EVTCHN_TWO_LEVEL_CONTEXT {
 
 static FORCEINLINE PVOID
 __EvtchnTwoLevelAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, XENBUS_EVTCHN_TWO_LEVEL_TAG);
@@ -59,7 +60,7 @@ __EvtchnTwoLevelAllocate(
 
 static FORCEINLINE VOID
 __EvtchnTwoLevelFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, XENBUS_EVTCHN_TWO_LEVEL_TAG);
@@ -67,25 +68,27 @@ __EvtchnTwoLevelFree(
 
 static BOOLEAN
 EvtchnTwoLevelIsProcessorEnabled(
-    IN  PXENBUS_EVTCHN_ABI_CONTEXT  _Context,
-    IN  ULONG                       Index
+    _In_ PXENBUS_EVTCHN_ABI_CONTEXT _Context,
+    _In_ ULONG                      Index
     )
 {
-    UNREFERENCED_PARAMETER(_Context);
+    unsigned int                    vcpu_id;
+    NTSTATUS                        status;
 
-    //
-    // We currently rely on using the vcpu_info array that is embedded
-    // in the shared_info.
-    //
-    return (Index < XEN_LEGACY_MAX_VCPUS) ? TRUE : FALSE;
+    UNREFERENCED_PARAMETER(_Context);
+    UNREFERENCED_PARAMETER(Index);
+
+    status = SystemProcessorVcpuId(Index, &vcpu_id);
+
+    return NT_SUCCESS(status) ? TRUE : FALSE;
 }
 
 static BOOLEAN
 EvtchnTwoLevelPoll(
-    IN  PXENBUS_EVTCHN_ABI_CONTEXT      _Context,
-    IN  ULONG                           Index,
-    IN  XENBUS_EVTCHN_ABI_EVENT         Event,
-    IN  PVOID                           Argument
+    _In_ PXENBUS_EVTCHN_ABI_CONTEXT     _Context,
+    _In_ ULONG                          Index,
+    _In_ XENBUS_EVTCHN_ABI_EVENT        Event,
+    _In_ PVOID                          Argument
     )
 {
     PXENBUS_EVTCHN_TWO_LEVEL_CONTEXT    Context = (PVOID)_Context;
@@ -99,8 +102,8 @@ EvtchnTwoLevelPoll(
 
 static NTSTATUS
 EvtchnTwoLevelPortEnable(
-    IN  PXENBUS_EVTCHN_ABI_CONTEXT      _Context,
-    IN  ULONG                           Port
+    _In_ PXENBUS_EVTCHN_ABI_CONTEXT     _Context,
+    _In_ ULONG                          Port
     )
 {
     UNREFERENCED_PARAMETER(_Context);
@@ -111,8 +114,8 @@ EvtchnTwoLevelPortEnable(
 
 static VOID
 EvtchnTwoLevelPortDisable(
-    IN  PXENBUS_EVTCHN_ABI_CONTEXT      _Context,
-    IN  ULONG                           Port
+    _In_ PXENBUS_EVTCHN_ABI_CONTEXT     _Context,
+    _In_ ULONG                          Port
     )
 {
     PXENBUS_EVTCHN_TWO_LEVEL_CONTEXT    Context = (PVOID)_Context;
@@ -124,8 +127,8 @@ EvtchnTwoLevelPortDisable(
 
 static VOID
 EvtchnTwoLevelPortAck(
-    IN  PXENBUS_EVTCHN_ABI_CONTEXT      _Context,
-    IN  ULONG                           Port
+    _In_ PXENBUS_EVTCHN_ABI_CONTEXT     _Context,
+    _In_ ULONG                          Port
     )
 {
     PXENBUS_EVTCHN_TWO_LEVEL_CONTEXT    Context = (PVOID)_Context;
@@ -137,8 +140,8 @@ EvtchnTwoLevelPortAck(
 
 static VOID
 EvtchnTwoLevelPortMask(
-    IN  PXENBUS_EVTCHN_ABI_CONTEXT      _Context,
-    IN  ULONG                           Port
+    _In_ PXENBUS_EVTCHN_ABI_CONTEXT     _Context,
+    _In_ ULONG                          Port
     )
 {
     PXENBUS_EVTCHN_TWO_LEVEL_CONTEXT    Context = (PVOID)_Context;
@@ -150,8 +153,8 @@ EvtchnTwoLevelPortMask(
 
 static BOOLEAN
 EvtchnTwoLevelPortUnmask(
-    IN  PXENBUS_EVTCHN_ABI_CONTEXT      _Context,
-    IN  ULONG                           Port
+    _In_ PXENBUS_EVTCHN_ABI_CONTEXT     _Context,
+    _In_ ULONG                          Port
     )
 {
     PXENBUS_EVTCHN_TWO_LEVEL_CONTEXT    Context = (PVOID)_Context;
@@ -163,7 +166,7 @@ EvtchnTwoLevelPortUnmask(
 
 static NTSTATUS
 EvtchnTwoLevelAcquire(
-    IN  PXENBUS_EVTCHN_ABI_CONTEXT      _Context
+    _In_ PXENBUS_EVTCHN_ABI_CONTEXT     _Context
     )
 {
     PXENBUS_EVTCHN_TWO_LEVEL_CONTEXT    Context = (PVOID)_Context;
@@ -202,7 +205,7 @@ fail1:
 
 VOID
 EvtchnTwoLevelRelease(
-    IN  PXENBUS_EVTCHN_ABI_CONTEXT      _Context
+    _In_ PXENBUS_EVTCHN_ABI_CONTEXT     _Context
     )
 {
     PXENBUS_EVTCHN_TWO_LEVEL_CONTEXT    Context = (PVOID)_Context;
@@ -238,8 +241,8 @@ static XENBUS_EVTCHN_ABI EvtchnAbiTwoLevel = {
 
 NTSTATUS
 EvtchnTwoLevelInitialize(
-    IN  PXENBUS_FDO                     Fdo,
-    OUT PXENBUS_EVTCHN_ABI_CONTEXT      *_Context
+    _In_ PXENBUS_FDO                    Fdo,
+    _Outptr_ PXENBUS_EVTCHN_ABI_CONTEXT *_Context
     )
 {
     PXENBUS_EVTCHN_TWO_LEVEL_CONTEXT    Context;
@@ -278,8 +281,8 @@ fail1:
 
 VOID
 EvtchnTwoLevelGetAbi(
-    IN  PXENBUS_EVTCHN_ABI_CONTEXT      _Context,
-    OUT PXENBUS_EVTCHN_ABI              Abi)
+    _In_ PXENBUS_EVTCHN_ABI_CONTEXT     _Context,
+    _Out_ PXENBUS_EVTCHN_ABI            Abi)
 {
     *Abi = EvtchnAbiTwoLevel;
 
@@ -288,7 +291,7 @@ EvtchnTwoLevelGetAbi(
 
 VOID
 EvtchnTwoLevelTeardown(
-    IN  PXENBUS_EVTCHN_ABI_CONTEXT      _Context
+    _In_ PXENBUS_EVTCHN_ABI_CONTEXT     _Context
     )
 {
     PXENBUS_EVTCHN_TWO_LEVEL_CONTEXT    Context = (PVOID)_Context;

@@ -1,4 +1,5 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms,
@@ -41,6 +42,7 @@
 #include "dbg_print.h"
 #include "assert.h"
 #include "util.h"
+#include "registry.h"
 
 struct _XENBUS_UNPLUG_CONTEXT {
     KSPIN_LOCK  Lock;
@@ -52,7 +54,7 @@ struct _XENBUS_UNPLUG_CONTEXT {
 
 static FORCEINLINE PVOID
 __UnplugAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, XENBUS_UNPLUG_TAG);
@@ -60,18 +62,18 @@ __UnplugAllocate(
 
 static FORCEINLINE VOID
 __UnplugFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, XENBUS_UNPLUG_TAG);
 }
 
-__drv_requiresIRQL(PASSIVE_LEVEL)
+_IRQL_requires_(PASSIVE_LEVEL)
 static VOID
 UnplugRequest(
-    IN  PINTERFACE                  Interface,
-    IN  XENBUS_UNPLUG_DEVICE_TYPE   Type,
-    IN  BOOLEAN                     Make
+    _In_ PINTERFACE                 Interface,
+    _In_ XENBUS_UNPLUG_DEVICE_TYPE  Type,
+    _In_ BOOLEAN                    Make
     )
 {
     PXENBUS_UNPLUG_CONTEXT          Context = Interface->Context;
@@ -109,9 +111,101 @@ UnplugRequest(
     ReleaseMutex(&Context->Mutex);
 }
 
+_IRQL_requires_(PASSIVE_LEVEL)
+static BOOLEAN
+UnplugIsRequested(
+    _In_ PINTERFACE                 Interface,
+    _In_ XENBUS_UNPLUG_DEVICE_TYPE  Type
+    )
+{
+    PXENBUS_UNPLUG_CONTEXT          Context = Interface->Context;
+    BOOLEAN                         Requested;
+
+    ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
+
+    AcquireMutex(&Context->Mutex);
+
+    Requested = FALSE;
+    switch (Type) {
+    case XENBUS_UNPLUG_DEVICE_TYPE_NICS:
+        Requested = UnplugGetRequest(UNPLUG_NICS);
+        break;
+
+    case XENBUS_UNPLUG_DEVICE_TYPE_DISKS:
+        Requested = UnplugGetRequest(UNPLUG_DISKS);
+        break;
+
+    default:
+        ASSERT(FALSE);
+        break;
+    }
+
+    ReleaseMutex(&Context->Mutex);
+
+    return Requested;
+}
+
+_IRQL_requires_(PASSIVE_LEVEL)
+static BOOLEAN
+UnplugBootEmulated(
+    _In_ PINTERFACE                 Interface
+    )
+{
+    PXENBUS_UNPLUG_CONTEXT          Context = Interface->Context;
+    CHAR                            KeyName[] = "XEN:BOOT_EMULATED=";
+    PANSI_STRING                    Option;
+    PSTR                            Value;
+    NTSTATUS                        status;
+    BOOLEAN                         BootEmulated;
+
+    ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
+
+    AcquireMutex(&Context->Mutex);
+
+    BootEmulated = FALSE;
+
+    status = ConfigQuerySystemStartOption(KeyName, &Option);
+    if (!NT_SUCCESS(status))
+        goto done;
+
+    Value = Option->Buffer + sizeof (KeyName) - 1;
+
+    if (strcmp(Value, "TRUE") == 0)
+        BootEmulated = TRUE;
+    else if (strcmp(Value, "FALSE") != 0)
+        Warning("UNRECOGNIZED VALUE OF %s: %s\n", KeyName, Value);
+
+    RegistryFreeSzValue(Option);
+
+done:
+    ReleaseMutex(&Context->Mutex);
+
+    return BootEmulated;
+}
+
+_IRQL_requires_(PASSIVE_LEVEL)
+static VOID
+UnplugReboot(
+    _In_ PINTERFACE                 Interface,
+    _In_ PSTR                       Module
+    )
+{
+    PXENBUS_UNPLUG_CONTEXT          Context = Interface->Context;
+
+    ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
+
+    AcquireMutex(&Context->Mutex);
+
+    ConfigRequestReboot(DriverGetParametersKey(), Module);
+
+    ReleaseMutex(&Context->Mutex);
+
+    return;
+}
+
 static NTSTATUS
 UnplugAcquire(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENBUS_UNPLUG_CONTEXT  Context = Interface->Context;
@@ -132,7 +226,7 @@ done:
 
 static VOID
 UnplugRelease(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENBUS_UNPLUG_CONTEXT  Context = Interface->Context;
@@ -156,13 +250,31 @@ static struct _XENBUS_UNPLUG_INTERFACE_V1 UnplugInterfaceVersion1 = {
     UnplugRequest
 };
 
+static struct _XENBUS_UNPLUG_INTERFACE_V2 UnplugInterfaceVersion2 = {
+    { sizeof (struct _XENBUS_UNPLUG_INTERFACE_V2), 2, NULL, NULL, NULL },
+    UnplugAcquire,
+    UnplugRelease,
+    UnplugRequest,
+    UnplugIsRequested
+};
+
+static struct _XENBUS_UNPLUG_INTERFACE_V3 UnplugInterfaceVersion3 = {
+    { sizeof (struct _XENBUS_UNPLUG_INTERFACE_V3), 3, NULL, NULL, NULL },
+    UnplugAcquire,
+    UnplugRelease,
+    UnplugRequest,
+    UnplugIsRequested,
+    UnplugBootEmulated,
+    UnplugReboot
+};
+
 NTSTATUS
 UnplugInitialize(
-    IN  PXENBUS_FDO             Fdo,
-    OUT PXENBUS_UNPLUG_CONTEXT  *Context
+    _In_ PXENBUS_FDO                Fdo,
+    _Outptr_ PXENBUS_UNPLUG_CONTEXT *Context
     )
 {
-    NTSTATUS                    status;
+    NTSTATUS                        status;
 
     UNREFERENCED_PARAMETER(Fdo);
 
@@ -189,13 +301,13 @@ fail1:
 
 NTSTATUS
 UnplugGetInterface(
-    IN      PXENBUS_UNPLUG_CONTEXT  Context,
-    IN      ULONG                   Version,
-    IN OUT  PINTERFACE              Interface,
-    IN      ULONG                   Size
+    _In_ PXENBUS_UNPLUG_CONTEXT Context,
+    _In_ ULONG                  Version,
+    _Inout_ PINTERFACE          Interface,
+    _In_ ULONG                  Size
     )
 {
-    NTSTATUS                        status;
+    NTSTATUS                    status;
 
     ASSERT(Context != NULL);
 
@@ -217,6 +329,40 @@ UnplugGetInterface(
         status = STATUS_SUCCESS;
         break;
     }
+    case 2: {
+        struct _XENBUS_UNPLUG_INTERFACE_V2   *UnplugInterface;
+
+        UnplugInterface = (struct _XENBUS_UNPLUG_INTERFACE_V2 *)Interface;
+
+        status = STATUS_BUFFER_OVERFLOW;
+        if (Size < sizeof (struct _XENBUS_UNPLUG_INTERFACE_V2))
+            break;
+
+        *UnplugInterface = UnplugInterfaceVersion2;
+
+        ASSERT3U(Interface->Version, ==, Version);
+        Interface->Context = Context;
+
+        status = STATUS_SUCCESS;
+        break;
+    }
+    case 3: {
+        struct _XENBUS_UNPLUG_INTERFACE_V3   *UnplugInterface;
+
+        UnplugInterface = (struct _XENBUS_UNPLUG_INTERFACE_V3 *)Interface;
+
+        status = STATUS_BUFFER_OVERFLOW;
+        if (Size < sizeof (struct _XENBUS_UNPLUG_INTERFACE_V3))
+            break;
+
+        *UnplugInterface = UnplugInterfaceVersion3;
+
+        ASSERT3U(Interface->Version, ==, Version);
+        Interface->Context = Context;
+
+        status = STATUS_SUCCESS;
+        break;
+    }
     default:
         status = STATUS_NOT_SUPPORTED;
         break;
@@ -227,7 +373,7 @@ UnplugGetInterface(
 
 ULONG
 UnplugGetReferences(
-    IN  PXENBUS_UNPLUG_CONTEXT  Context
+    _In_ PXENBUS_UNPLUG_CONTEXT Context
     )
 {
     return Context->References;
@@ -235,7 +381,7 @@ UnplugGetReferences(
 
 VOID
 UnplugTeardown(
-    IN  PXENBUS_UNPLUG_CONTEXT  Context
+    _In_ PXENBUS_UNPLUG_CONTEXT Context
     )
 {
     Trace("====>\n");

@@ -1,31 +1,32 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -59,11 +60,6 @@ struct _XENFILT_FDO {
     PDEVICE_OBJECT                  PhysicalDeviceObject;
     CHAR                            Name[MAXNAMELEN];
 
-    PXENFILT_THREAD                 SystemPowerThread;
-    PIRP                            SystemPowerIrp;
-    PXENFILT_THREAD                 DevicePowerThread;
-    PIRP                            DevicePowerIrp;
-
     MUTEX                           Mutex;
     LIST_ENTRY                      List;
     ULONG                           References;
@@ -75,7 +71,7 @@ struct _XENFILT_FDO {
 
 static FORCEINLINE PVOID
 __FdoAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, FDO_TAG);
@@ -83,7 +79,7 @@ __FdoAllocate(
 
 static FORCEINLINE VOID
 __FdoFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, FDO_TAG);
@@ -91,8 +87,8 @@ __FdoFree(
 
 static FORCEINLINE VOID
 __FdoSetDevicePnpState(
-    IN  PXENFILT_FDO        Fdo,
-    IN  DEVICE_PNP_STATE    State
+    _In_ PXENFILT_FDO       Fdo,
+    _In_ DEVICE_PNP_STATE   State
     )
 {
     PXENFILT_DX             Dx = Fdo->Dx;
@@ -106,8 +102,8 @@ __FdoSetDevicePnpState(
 
 static FORCEINLINE VOID
 __FdoRestoreDevicePnpState(
-    IN  PXENFILT_FDO        Fdo,
-    IN  DEVICE_PNP_STATE    State
+    _In_ PXENFILT_FDO       Fdo,
+    _In_ DEVICE_PNP_STATE   State
     )
 {
     PXENFILT_DX             Dx = Fdo->Dx;
@@ -118,7 +114,7 @@ __FdoRestoreDevicePnpState(
 
 static FORCEINLINE DEVICE_PNP_STATE
 __FdoGetDevicePnpState(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     PXENFILT_DX         Dx = Fdo->Dx;
@@ -128,7 +124,7 @@ __FdoGetDevicePnpState(
 
 static FORCEINLINE DEVICE_PNP_STATE
 __FdoGetPreviousDevicePnpState(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     PXENFILT_DX         Dx = Fdo->Dx;
@@ -138,8 +134,8 @@ __FdoGetPreviousDevicePnpState(
 
 static FORCEINLINE VOID
 __FdoSetDevicePowerState(
-    IN  PXENFILT_FDO        Fdo,
-    IN  DEVICE_POWER_STATE  State
+    _In_ PXENFILT_FDO       Fdo,
+    _In_ DEVICE_POWER_STATE State
     )
 {
     PXENFILT_DX             Dx = Fdo->Dx;
@@ -149,7 +145,7 @@ __FdoSetDevicePowerState(
 
 static FORCEINLINE DEVICE_POWER_STATE
 __FdoGetDevicePowerState(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     PXENFILT_DX         Dx = Fdo->Dx;
@@ -159,8 +155,8 @@ __FdoGetDevicePowerState(
 
 static FORCEINLINE VOID
 __FdoSetSystemPowerState(
-    IN  PXENFILT_FDO        Fdo,
-    IN  SYSTEM_POWER_STATE  State
+    _In_ PXENFILT_FDO       Fdo,
+    _In_ SYSTEM_POWER_STATE State
     )
 {
     PXENFILT_DX              Dx = Fdo->Dx;
@@ -170,7 +166,7 @@ __FdoSetSystemPowerState(
 
 static FORCEINLINE SYSTEM_POWER_STATE
 __FdoGetSystemPowerState(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     PXENFILT_DX         Dx = Fdo->Dx;
@@ -180,17 +176,17 @@ __FdoGetSystemPowerState(
 
 static FORCEINLINE PDEVICE_OBJECT
 __FdoGetDeviceObject(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     PXENFILT_DX         Dx = Fdo->Dx;
 
     return Dx->DeviceObject;
 }
-    
+
 PDEVICE_OBJECT
 FdoGetDeviceObject(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     return __FdoGetDeviceObject(Fdo);
@@ -198,7 +194,7 @@ FdoGetDeviceObject(
 
 static FORCEINLINE PDEVICE_OBJECT
 __FdoGetPhysicalDeviceObject(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     return Fdo->PhysicalDeviceObject;
@@ -206,7 +202,7 @@ __FdoGetPhysicalDeviceObject(
 
 PDEVICE_OBJECT
 FdoGetPhysicalDeviceObject(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     return __FdoGetPhysicalDeviceObject(Fdo);
@@ -214,7 +210,7 @@ FdoGetPhysicalDeviceObject(
 
 static FORCEINLINE NTSTATUS
 __FdoSetDeviceID(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     PXENFILT_DX         Dx = Fdo->Dx;
@@ -225,9 +221,9 @@ __FdoSetDeviceID(
 
 }
 
-static FORCEINLINE PCHAR
+static FORCEINLINE PSTR
 __FdoGetDeviceID(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     PXENFILT_DX         Dx = Fdo->Dx;
@@ -237,7 +233,7 @@ __FdoGetDeviceID(
 
 static FORCEINLINE VOID
 __FdoClearDeviceID(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     PXENFILT_DX         Dx = Fdo->Dx;
@@ -248,7 +244,7 @@ __FdoClearDeviceID(
 
 static FORCEINLINE NTSTATUS
 __FdoSetInstanceID(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     PXENFILT_DX         Dx = Fdo->Dx;
@@ -258,9 +254,9 @@ __FdoSetInstanceID(
                          &Dx->InstanceID);
 }
 
-static FORCEINLINE PCHAR
+static FORCEINLINE PSTR
 __FdoGetInstanceID(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     PXENFILT_DX         Dx = Fdo->Dx;
@@ -270,7 +266,7 @@ __FdoGetInstanceID(
 
 static FORCEINLINE VOID
 __FdoClearInstanceID(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     PXENFILT_DX         Dx = Fdo->Dx;
@@ -281,7 +277,7 @@ __FdoClearInstanceID(
 
 static FORCEINLINE VOID
 __FdoSetName(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     NTSTATUS            status;
@@ -294,9 +290,9 @@ __FdoSetName(
     ASSERT(NT_SUCCESS(status));
 }
 
-static FORCEINLINE PCHAR
+static FORCEINLINE PSTR
 __FdoGetName(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     return Fdo->Name;
@@ -304,8 +300,8 @@ __FdoGetName(
 
 VOID
 FdoAddPhysicalDeviceObject(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PXENFILT_PDO    Pdo
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PXENFILT_PDO   Pdo
     )
 {
     PDEVICE_OBJECT      DeviceObject;
@@ -324,8 +320,8 @@ FdoAddPhysicalDeviceObject(
 
 VOID
 FdoRemovePhysicalDeviceObject(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PXENFILT_PDO    Pdo
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PXENFILT_PDO   Pdo
     )
 {
     PDEVICE_OBJECT      DeviceObject;
@@ -344,7 +340,7 @@ FdoRemovePhysicalDeviceObject(
 
 static FORCEINLINE VOID
 __FdoAcquireMutex(
-    IN  PXENFILT_FDO     Fdo
+    _In_ PXENFILT_FDO    Fdo
     )
 {
     AcquireMutex(&Fdo->Mutex);
@@ -352,7 +348,7 @@ __FdoAcquireMutex(
 
 VOID
 FdoAcquireMutex(
-    IN  PXENFILT_FDO     Fdo
+    _In_ PXENFILT_FDO    Fdo
     )
 {
     __FdoAcquireMutex(Fdo);
@@ -360,7 +356,7 @@ FdoAcquireMutex(
 
 static FORCEINLINE VOID
 __FdoReleaseMutex(
-    IN  PXENFILT_FDO     Fdo
+    _In_ PXENFILT_FDO    Fdo
     )
 {
     ReleaseMutex(&Fdo->Mutex);
@@ -368,7 +364,7 @@ __FdoReleaseMutex(
 
 VOID
 FdoReleaseMutex(
-    IN  PXENFILT_FDO     Fdo
+    _In_ PXENFILT_FDO    Fdo
     )
 {
     __FdoReleaseMutex(Fdo);
@@ -382,7 +378,7 @@ FdoReleaseMutex(
 
 static FORCEINLINE VOID
 __FdoSetEnumerated(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     Fdo->Enumerated = TRUE;
@@ -392,7 +388,7 @@ __FdoSetEnumerated(
 
 BOOLEAN
 FdoHasEnumerated(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     return Fdo->Enumerated;
@@ -400,14 +396,16 @@ FdoHasEnumerated(
 
 static VOID
 FdoEnumerate(
-    IN  PXENFILT_FDO        Fdo,
-    IN  PDEVICE_RELATIONS   Relations
+    _In_ PXENFILT_FDO       Fdo,
+    _In_ PDEVICE_RELATIONS  Relations
     )
 {
     PDEVICE_OBJECT          *PhysicalDeviceObject;
     ULONG                   Count;
     PLIST_ENTRY             ListEntry;
     ULONG                   Index;
+    ULONG                   ActiveIndex;
+    ULONG                   Precedence;
     NTSTATUS                status;
 
     Count = Relations->Count;
@@ -462,15 +460,42 @@ FdoEnumerate(
         ListEntry = Next;
     }
 
+    ActiveIndex = Precedence = 0;
+    for (Index = 0; Index < Count; Index++) {
+        ULONG   ThisPrecedence;
+
+#pragma warning(suppress:6385)  // Reading invalid data from 'PhysicalDeviceObject'
+        if (PhysicalDeviceObject[Index] != NULL) {
+            status = DriverGetPrecedence(PhysicalDeviceObject[Index],
+                                         &ThisPrecedence);
+            if (ThisPrecedence > Precedence) {
+                ActiveIndex = Index;
+                Precedence = ThisPrecedence;
+            }
+        }
+    }
+
     // Walk the list and create PDO filters for any new devices
     for (Index = 0; Index < Count; Index++) {
 #pragma warning(suppress:6385)  // Reading invalid data from 'PhysicalDeviceObject'
         if (PhysicalDeviceObject[Index] != NULL) {
-            (VOID) PdoCreate(Fdo, PhysicalDeviceObject[Index], Fdo->Type);
+            XENBUS_EMULATED_ACTIVATION_STATUS   ForceActivate;
+
+            if (Precedence > 0)
+                ForceActivate = Index == ActiveIndex ?
+                                XENBUS_EMULATED_FORCE_ACTIVATED :
+                                XENBUS_EMULATED_FORCE_DEACTIVATED;
+            else
+                ForceActivate = XENBUS_EMULATED_ACTIVATE_NEUTRAL;
+
+            (VOID) PdoCreate(Fdo,
+                             PhysicalDeviceObject[Index],
+                             Fdo->Type,
+                             ForceActivate);
             ObDereferenceObject(PhysicalDeviceObject[Index]);
         }
     }
-    
+
     __FdoSetEnumerated(Fdo);
 
     __FdoFree(PhysicalDeviceObject);
@@ -480,13 +505,14 @@ fail1:
     Error("fail1 (%08x)\n", status);
 }
 
-__drv_functionClass(IO_COMPLETION_ROUTINE)
-__drv_sameIRQL
+static IO_COMPLETION_ROUTINE FdoForwardIrpSynchronouslyCompletion;
+
+_Use_decl_annotations_
 static NTSTATUS
 FdoForwardIrpSynchronouslyCompletion(
-    IN  PDEVICE_OBJECT  DeviceObject,
-    IN  PIRP            Irp,
-    IN  PVOID           Context
+    PDEVICE_OBJECT      DeviceObject,
+    PIRP                Irp,
+    PVOID               Context
     )
 {
     PKEVENT             Event = Context;
@@ -501,8 +527,8 @@ FdoForwardIrpSynchronouslyCompletion(
 
 static NTSTATUS
 FdoForwardIrpSynchronously(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
     )
 {
     KEVENT              Event;
@@ -537,8 +563,8 @@ FdoForwardIrpSynchronously(
 
 static NTSTATUS
 FdoStartDevice(
-    IN  PXENFILT_FDO            Fdo,
-    IN  PIRP                    Irp
+    _In_ PXENFILT_FDO           Fdo,
+    _In_ PIRP                   Irp
     )
 {
     POWER_STATE                 PowerState;
@@ -581,31 +607,10 @@ fail1:
     return status;
 }
 
-__drv_functionClass(IO_COMPLETION_ROUTINE)
-__drv_sameIRQL
-static NTSTATUS
-FdoQueryStopDeviceCompletion(
-    IN  PDEVICE_OBJECT  DeviceObject,
-    IN  PIRP            Irp,
-    IN  PVOID           Context
-    )
-{
-    PXENFILT_FDO        Fdo = Context;
-
-    UNREFERENCED_PARAMETER(DeviceObject);
-
-    if (Irp->PendingReturned)
-        IoMarkIrpPending(Irp);
-
-    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
-
-    return STATUS_SUCCESS;
-}
-
 static NTSTATUS
 FdoQueryStopDevice(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
     )
 {
     NTSTATUS            status;
@@ -617,15 +622,10 @@ FdoQueryStopDevice(
     __FdoSetDevicePnpState(Fdo, StopPending);
     Irp->IoStatus.Status = STATUS_SUCCESS;
 
-    IoCopyCurrentIrpStackLocationToNext(Irp);
-    IoSetCompletionRoutine(Irp,
-                           FdoQueryStopDeviceCompletion,
-                           Fdo,
-                           TRUE,
-                           TRUE,
-                           TRUE);
+    IoSkipCurrentIrpStackLocation(Irp);
 
     status = IoCallDriver(Fdo->LowerDeviceObject, Irp);
+    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
 
     return status;
 
@@ -636,31 +636,10 @@ fail1:
     return status;
 }
 
-__drv_functionClass(IO_COMPLETION_ROUTINE)
-__drv_sameIRQL
-static NTSTATUS
-FdoCancelStopDeviceCompletion(
-    IN  PDEVICE_OBJECT  DeviceObject,
-    IN  PIRP            Irp,
-    IN  PVOID           Context
-    )
-{
-    PXENFILT_FDO        Fdo = Context;
-
-    UNREFERENCED_PARAMETER(DeviceObject);
-
-    if (Irp->PendingReturned)
-        IoMarkIrpPending(Irp);
-
-    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
-
-    return STATUS_SUCCESS;
-}
-
 static NTSTATUS
 FdoCancelStopDevice(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
     )
 {
     NTSTATUS            status;
@@ -673,15 +652,10 @@ FdoCancelStopDevice(
 
     __FdoRestoreDevicePnpState(Fdo, StopPending);
 
-    IoCopyCurrentIrpStackLocationToNext(Irp);
-    IoSetCompletionRoutine(Irp,
-                           FdoCancelStopDeviceCompletion,
-                           Fdo,
-                           TRUE,
-                           TRUE,
-                           TRUE);
+    IoSkipCurrentIrpStackLocation(Irp);
 
     status = IoCallDriver(Fdo->LowerDeviceObject, Irp);
+    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
 
     return status;
 
@@ -692,31 +666,10 @@ fail1:
     return status;
 }
 
-__drv_functionClass(IO_COMPLETION_ROUTINE)
-__drv_sameIRQL
-static NTSTATUS
-FdoStopDeviceCompletion(
-    IN  PDEVICE_OBJECT  DeviceObject,
-    IN  PIRP            Irp,
-    IN  PVOID           Context
-    )
-{
-    PXENFILT_FDO        Fdo = Context;
-
-    UNREFERENCED_PARAMETER(DeviceObject);
-
-    if (Irp->PendingReturned)
-        IoMarkIrpPending(Irp);
-
-    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
-
-    return STATUS_SUCCESS;
-}
-
 static NTSTATUS
 FdoStopDevice(
-    IN  PXENFILT_FDO            Fdo,
-    IN  PIRP                    Irp
+    _In_ PXENFILT_FDO           Fdo,
+    _In_ PIRP                   Irp
     )
 {
     NTSTATUS                    status;
@@ -739,15 +692,10 @@ FdoStopDevice(
     __FdoSetDevicePnpState(Fdo, Stopped);
     Irp->IoStatus.Status = STATUS_SUCCESS;
 
-    IoCopyCurrentIrpStackLocationToNext(Irp);
-    IoSetCompletionRoutine(Irp,
-                           FdoStopDeviceCompletion,
-                           Fdo,
-                           TRUE,
-                           TRUE,
-                           TRUE);
+    IoSkipCurrentIrpStackLocation(Irp);
 
     status = IoCallDriver(Fdo->LowerDeviceObject, Irp);
+    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
 
     return status;
 
@@ -758,31 +706,10 @@ fail1:
     return status;
 }
 
-__drv_functionClass(IO_COMPLETION_ROUTINE)
-__drv_sameIRQL
-static NTSTATUS
-FdoQueryRemoveDeviceCompletion(
-    IN  PDEVICE_OBJECT  DeviceObject,
-    IN  PIRP            Irp,
-    IN  PVOID           Context
-    )
-{
-    PXENFILT_FDO        Fdo = Context;
-
-    UNREFERENCED_PARAMETER(DeviceObject);
-
-    if (Irp->PendingReturned)
-        IoMarkIrpPending(Irp);
-
-    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
-
-    return STATUS_SUCCESS;
-}
-
 static NTSTATUS
 FdoQueryRemoveDevice(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
     )
 {
     NTSTATUS            status;
@@ -794,15 +721,10 @@ FdoQueryRemoveDevice(
     __FdoSetDevicePnpState(Fdo, RemovePending);
     Irp->IoStatus.Status = STATUS_SUCCESS;
 
-    IoCopyCurrentIrpStackLocationToNext(Irp);
-    IoSetCompletionRoutine(Irp,
-                           FdoQueryRemoveDeviceCompletion,
-                           Fdo,
-                           TRUE,
-                           TRUE,
-                           TRUE);
+    IoSkipCurrentIrpStackLocation(Irp);
 
     status = IoCallDriver(Fdo->LowerDeviceObject, Irp);
+    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
 
     return status;
 
@@ -813,31 +735,10 @@ fail1:
     return status;
 }
 
-__drv_functionClass(IO_COMPLETION_ROUTINE)
-__drv_sameIRQL
-static NTSTATUS
-FdoCancelRemoveDeviceCompletion(
-    IN  PDEVICE_OBJECT  DeviceObject,
-    IN  PIRP            Irp,
-    IN  PVOID           Context
-    )
-{
-    PXENFILT_FDO        Fdo = Context;
-
-    UNREFERENCED_PARAMETER(DeviceObject);
-
-    if (Irp->PendingReturned)
-        IoMarkIrpPending(Irp);
-
-    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
-
-    return STATUS_SUCCESS;
-}
-
 static NTSTATUS
 FdoCancelRemoveDevice(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
     )
 {
     NTSTATUS            status;
@@ -849,15 +750,10 @@ FdoCancelRemoveDevice(
     __FdoRestoreDevicePnpState(Fdo, RemovePending);
     Irp->IoStatus.Status = STATUS_SUCCESS;
 
-    IoCopyCurrentIrpStackLocationToNext(Irp);
-    IoSetCompletionRoutine(Irp,
-                           FdoCancelRemoveDeviceCompletion,
-                           Fdo,
-                           TRUE,
-                           TRUE,
-                           TRUE);
+    IoSkipCurrentIrpStackLocation(Irp);
 
     status = IoCallDriver(Fdo->LowerDeviceObject, Irp);
+    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
 
     return status;
 
@@ -868,31 +764,10 @@ fail1:
     return status;
 }
 
-__drv_functionClass(IO_COMPLETION_ROUTINE)
-__drv_sameIRQL
-static NTSTATUS
-FdoSurpriseRemovalCompletion(
-    IN  PDEVICE_OBJECT  DeviceObject,
-    IN  PIRP            Irp,
-    IN  PVOID           Context
-    )
-{
-    PXENFILT_FDO        Fdo = Context;
-
-    UNREFERENCED_PARAMETER(DeviceObject);
-
-    if (Irp->PendingReturned)
-        IoMarkIrpPending(Irp);
-
-    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
-
-    return STATUS_SUCCESS;
-}
-
 static NTSTATUS
 FdoSurpriseRemoval(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
     )
 {
     NTSTATUS            status;
@@ -904,15 +779,10 @@ FdoSurpriseRemoval(
     __FdoSetDevicePnpState(Fdo, SurpriseRemovePending);
     Irp->IoStatus.Status = STATUS_SUCCESS;
 
-    IoCopyCurrentIrpStackLocationToNext(Irp);
-    IoSetCompletionRoutine(Irp,
-                           FdoSurpriseRemovalCompletion,
-                           Fdo,
-                           TRUE,
-                           TRUE,
-                           TRUE);
+    IoSkipCurrentIrpStackLocation(Irp);
 
     status = IoCallDriver(Fdo->LowerDeviceObject, Irp);
+    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
 
     return status;
 
@@ -925,8 +795,8 @@ fail1:
 
 static NTSTATUS
 FdoRemoveDevice(
-    IN  PXENFILT_FDO            Fdo,
-    IN  PIRP                    Irp
+    _In_ PXENFILT_FDO           Fdo,
+    _In_ PIRP                   Irp
     )
 {
     PLIST_ENTRY                 ListEntry;
@@ -974,10 +844,9 @@ FdoRemoveDevice(
 done:
     __FdoSetDevicePnpState(Fdo, Deleted);
 
-    IoReleaseRemoveLockAndWait(&Fdo->Dx->RemoveLock, Irp);
-
     status = FdoForwardIrpSynchronously(Fdo, Irp);
-    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+    IoReleaseRemoveLockAndWait(&Fdo->Dx->RemoveLock, Irp);
 
     __FdoAcquireMutex(Fdo);
     ASSERT3U(Fdo->References, !=, 0);
@@ -990,6 +859,8 @@ done:
         DriverReleaseMutex();
     }
 
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
     return status;
 
 fail1:
@@ -999,13 +870,14 @@ fail1:
     return status;
 }
 
-__drv_functionClass(IO_COMPLETION_ROUTINE)
-__drv_sameIRQL
+static IO_COMPLETION_ROUTINE FdoQueryDeviceRelationsCompletion;
+
+_Use_decl_annotations_
 static NTSTATUS
 FdoQueryDeviceRelationsCompletion(
-    IN  PDEVICE_OBJECT  DeviceObject,
-    IN  PIRP            Irp,
-    IN  PVOID           Context
+    PDEVICE_OBJECT      DeviceObject,
+    PIRP                Irp,
+    PVOID               Context
     )
 {
     PKEVENT             Event = Context;
@@ -1020,8 +892,8 @@ FdoQueryDeviceRelationsCompletion(
 
 static NTSTATUS
 FdoQueryDeviceRelations(
-    IN  PXENFILT_FDO        Fdo,
-    IN  PIRP                Irp
+    _In_ PXENFILT_FDO       Fdo,
+    _In_ PIRP               Irp
     )
 {
     KEVENT                  Event;
@@ -1107,7 +979,7 @@ FdoQueryDeviceRelations(
                 if (PdoGetDevicePnpState(Pdo) == Deleted)
                     PdoDestroy(Pdo);
 
-                continue;
+                goto next;
             }
 
             if (PdoGetDevicePnpState(Pdo) == Present)
@@ -1116,6 +988,7 @@ FdoQueryDeviceRelations(
             ObReferenceObject(PdoGetPhysicalDeviceObject(Pdo));
             Relations->Objects[Relations->Count++] = PdoGetPhysicalDeviceObject(Pdo);
 
+next:
             ListEntry = Next;
         }
 
@@ -1158,30 +1031,10 @@ fail1:
     return status;
 }
 
-__drv_functionClass(IO_COMPLETION_ROUTINE)
-__drv_sameIRQL
-static NTSTATUS
-FdoDispatchPnpCompletion(
-    IN  PDEVICE_OBJECT  DeviceObject,
-    IN  PIRP            Irp,
-    IN  PVOID           Context
-    )
-{
-    PXENFILT_FDO        Fdo = Context;
-
-    UNREFERENCED_PARAMETER(DeviceObject);
-
-    if (Irp->PendingReturned)
-        IoMarkIrpPending(Irp);
-
-    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
-    return STATUS_SUCCESS;
-}
-
 static NTSTATUS
 FdoDispatchPnp(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
     )
 {
     PIO_STACK_LOCATION  StackLocation;
@@ -1233,15 +1086,10 @@ FdoDispatchPnp(
         if (!NT_SUCCESS(status))
             goto fail1;
 
-        IoCopyCurrentIrpStackLocationToNext(Irp);
-        IoSetCompletionRoutine(Irp,
-                               FdoDispatchPnpCompletion,
-                               Fdo,
-                               TRUE,
-                               TRUE,
-                               TRUE);
+        IoSkipCurrentIrpStackLocation(Irp);
 
         status = IoCallDriver(Fdo->LowerDeviceObject, Irp);
+        IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
         break;
     }
 
@@ -1256,527 +1104,305 @@ fail1:
     return status;
 }
 
+static IO_COMPLETION_ROUTINE FdoSetDevicePowerUpComplete;
+
+_Use_decl_annotations_
 static NTSTATUS
-FdoSetDevicePowerUp(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
+FdoSetDevicePowerUpComplete(
+    PDEVICE_OBJECT      DeviceObject,
+    PIRP                Irp,
+    PVOID               Context
     )
 {
+    PXENFILT_FDO        Fdo = (PXENFILT_FDO)Context;
     PIO_STACK_LOCATION  StackLocation;
-    DEVICE_POWER_STATE  DeviceState;
     POWER_STATE         PowerState;
-    NTSTATUS            status;
-
-    StackLocation = IoGetCurrentIrpStackLocation(Irp);
-    DeviceState = StackLocation->Parameters.Power.State.DeviceState;
-
-    ASSERT3U(DeviceState, <,  __FdoGetDevicePowerState(Fdo));
-
-    status = FdoForwardIrpSynchronously(Fdo, Irp);
-    if (!NT_SUCCESS(status))
-        goto done;
-
-    Trace("%s: %s -> %s\n",
-          __FdoGetName(Fdo),
-          DevicePowerStateName(__FdoGetDevicePowerState(Fdo)),
-          DevicePowerStateName(DeviceState));
-
-    PowerState.DeviceState = DeviceState;
-    PoSetPowerState(Fdo->Dx->DeviceObject,
-                    DevicePowerState,
-                    PowerState);
-
-    __FdoSetDevicePowerState(Fdo, DeviceState);
-
-done:
-    IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-    return status;
-}
-
-static NTSTATUS
-FdoSetDevicePowerDown(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
-    )
-{
-    PIO_STACK_LOCATION  StackLocation;
-    DEVICE_POWER_STATE  DeviceState;
-    POWER_STATE         PowerState;
-    NTSTATUS            status;
-
-    StackLocation = IoGetCurrentIrpStackLocation(Irp);
-    DeviceState = StackLocation->Parameters.Power.State.DeviceState;
-
-    ASSERT3U(DeviceState, >,  __FdoGetDevicePowerState(Fdo));
-
-    Trace("%s: %s -> %s\n",
-          __FdoGetName(Fdo),
-          DevicePowerStateName(__FdoGetDevicePowerState(Fdo)),
-          DevicePowerStateName(DeviceState));
-
-    PowerState.DeviceState = DeviceState;
-    PoSetPowerState(Fdo->Dx->DeviceObject,
-                    DevicePowerState,
-                    PowerState);
-
-    __FdoSetDevicePowerState(Fdo, DeviceState);
-
-    status = FdoForwardIrpSynchronously(Fdo, Irp);
-    IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-    return status;
-}
-
-static NTSTATUS
-FdoSetDevicePower(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
-    )
-{
-    PIO_STACK_LOCATION  StackLocation;
-    DEVICE_POWER_STATE  DeviceState;
-    POWER_ACTION        PowerAction;
-    NTSTATUS            status;
-
-    StackLocation = IoGetCurrentIrpStackLocation(Irp);
-    DeviceState = StackLocation->Parameters.Power.State.DeviceState;
-    PowerAction = StackLocation->Parameters.Power.ShutdownType;
-
-    Trace("%s: ====> (%s:%s)\n",
-          __FdoGetName(Fdo),
-          DevicePowerStateName(DeviceState), 
-          PowerActionName(PowerAction));
-
-    if (DeviceState == __FdoGetDevicePowerState(Fdo)) {
-        status = FdoForwardIrpSynchronously(Fdo, Irp);
-        IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-        goto done;
-    }
-
-    status = (DeviceState < __FdoGetDevicePowerState(Fdo)) ?
-             FdoSetDevicePowerUp(Fdo, Irp) :
-             FdoSetDevicePowerDown(Fdo, Irp);
-
-done:
-    Trace("%s: <==== (%s:%s)(%08x)\n",
-          __FdoGetName(Fdo),
-          DevicePowerStateName(DeviceState), 
-          PowerActionName(PowerAction),
-          status);
-    return status;
-}
-
-static NTSTATUS
-FdoSetSystemPowerUp(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
-    )
-{
-    PIO_STACK_LOCATION  StackLocation;
-    SYSTEM_POWER_STATE  SystemState;
-    NTSTATUS            status;
-
-    StackLocation = IoGetCurrentIrpStackLocation(Irp);
-    SystemState = StackLocation->Parameters.Power.State.SystemState;
-
-    ASSERT3U(SystemState, <,  __FdoGetSystemPowerState(Fdo));
-
-    status = FdoForwardIrpSynchronously(Fdo, Irp);
-    if (!NT_SUCCESS(status))
-        goto done;
-
-    Trace("%s: %s -> %s\n",
-          __FdoGetName(Fdo),
-          SystemPowerStateName(__FdoGetSystemPowerState(Fdo)),
-          SystemPowerStateName(SystemState));
-
-    __FdoSetSystemPowerState(Fdo, SystemState);
-
-done:
-    IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-    return status;
-}
-
-static NTSTATUS
-FdoSetSystemPowerDown(
-    IN  PXENFILT_FDO     Fdo,
-    IN  PIRP            Irp
-    )
-{
-    PIO_STACK_LOCATION  StackLocation;
-    SYSTEM_POWER_STATE  SystemState;
-    NTSTATUS            status;
-
-    StackLocation = IoGetCurrentIrpStackLocation(Irp);
-    SystemState = StackLocation->Parameters.Power.State.SystemState;
-
-    ASSERT3U(SystemState, >,  __FdoGetSystemPowerState(Fdo));
-
-    Trace("%s: %s -> %s\n",
-          __FdoGetName(Fdo),
-          SystemPowerStateName(__FdoGetSystemPowerState(Fdo)),
-          SystemPowerStateName(SystemState));
-
-    __FdoSetSystemPowerState(Fdo, SystemState);
-
-    status = FdoForwardIrpSynchronously(Fdo, Irp);
-    IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-    return status;
-}
-
-static NTSTATUS
-FdoSetSystemPower(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
-    )
-{
-    PIO_STACK_LOCATION  StackLocation;
-    SYSTEM_POWER_STATE  SystemState;
-    POWER_ACTION        PowerAction;
-    NTSTATUS            status;
-
-    StackLocation = IoGetCurrentIrpStackLocation(Irp);
-    SystemState = StackLocation->Parameters.Power.State.SystemState;
-    PowerAction = StackLocation->Parameters.Power.ShutdownType;
-
-    Trace("%s: ====> (%s:%s)\n",
-          __FdoGetName(Fdo),
-          SystemPowerStateName(SystemState), 
-          PowerActionName(PowerAction));
-
-    if (SystemState == __FdoGetSystemPowerState(Fdo)) {
-        status = FdoForwardIrpSynchronously(Fdo, Irp);
-        IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-        goto done;
-    }
-
-    status = (SystemState < __FdoGetSystemPowerState(Fdo)) ?
-             FdoSetSystemPowerUp(Fdo, Irp) :
-             FdoSetSystemPowerDown(Fdo, Irp);
-
-done:
-    Trace("%s: <==== (%s:%s)(%08x)\n",
-          __FdoGetName(Fdo),
-          SystemPowerStateName(SystemState), 
-          PowerActionName(PowerAction),
-          status);
-    return status;
-}
-
-static NTSTATUS
-FdoQueryDevicePowerUp(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
-    )
-{
-    PIO_STACK_LOCATION  StackLocation;
-    DEVICE_POWER_STATE  DeviceState;
-    NTSTATUS            status;
-
-    StackLocation = IoGetCurrentIrpStackLocation(Irp);
-    DeviceState = StackLocation->Parameters.Power.State.DeviceState;
-
-    ASSERT3U(DeviceState, <,  __FdoGetDevicePowerState(Fdo));
-
-    status = FdoForwardIrpSynchronously(Fdo, Irp);
-
-    IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-    return status;
-}
-
-static NTSTATUS
-FdoQueryDevicePowerDown(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
-    )
-{
-    PIO_STACK_LOCATION  StackLocation;
-    DEVICE_POWER_STATE  DeviceState;
-    NTSTATUS            status;
-
-    StackLocation = IoGetCurrentIrpStackLocation(Irp);
-    DeviceState = StackLocation->Parameters.Power.State.DeviceState;
-
-    ASSERT3U(DeviceState, >,  __FdoGetDevicePowerState(Fdo));
-
-    status = FdoForwardIrpSynchronously(Fdo, Irp);
-    IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-    return status;
-}
-
-static NTSTATUS
-FdoQueryDevicePower(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
-    )
-{
-    PIO_STACK_LOCATION  StackLocation;
-    DEVICE_POWER_STATE  DeviceState;
-    POWER_ACTION        PowerAction;
-    NTSTATUS            status;
-
-    StackLocation = IoGetCurrentIrpStackLocation(Irp);
-    DeviceState = StackLocation->Parameters.Power.State.DeviceState;
-    PowerAction = StackLocation->Parameters.Power.ShutdownType;
-
-    Trace("%s: ====> (%s:%s)\n",
-          __FdoGetName(Fdo),
-          DevicePowerStateName(DeviceState), 
-          PowerActionName(PowerAction));
-
-    if (DeviceState == __FdoGetDevicePowerState(Fdo)) {
-        status = FdoForwardIrpSynchronously(Fdo, Irp);
-        IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-        goto done;
-    }
-
-    status = (DeviceState < __FdoGetDevicePowerState(Fdo)) ?
-             FdoQueryDevicePowerUp(Fdo, Irp) :
-             FdoQueryDevicePowerDown(Fdo, Irp);
-
-done:
-    Trace("%s: <==== (%s:%s)(%08x)\n",
-          __FdoGetName(Fdo),
-          DevicePowerStateName(DeviceState), 
-          PowerActionName(PowerAction),
-          status);
-    return status;
-}
-
-static NTSTATUS
-FdoQuerySystemPowerUp(
-    IN  PXENFILT_FDO     Fdo,
-    IN  PIRP            Irp
-    )
-{
-    PIO_STACK_LOCATION  StackLocation;
-    SYSTEM_POWER_STATE  SystemState;
-    NTSTATUS            status;
-
-    StackLocation = IoGetCurrentIrpStackLocation(Irp);
-    SystemState = StackLocation->Parameters.Power.State.SystemState;
-
-    ASSERT3U(SystemState, <,  __FdoGetSystemPowerState(Fdo));
-
-    status = FdoForwardIrpSynchronously(Fdo, Irp);
-
-    IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-    return status;
-}
-
-static NTSTATUS
-FdoQuerySystemPowerDown(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
-    )
-{
-    PIO_STACK_LOCATION  StackLocation;
-    SYSTEM_POWER_STATE  SystemState;
-    NTSTATUS            status;
-
-    StackLocation = IoGetCurrentIrpStackLocation(Irp);
-    SystemState = StackLocation->Parameters.Power.State.SystemState;
-
-    ASSERT3U(SystemState, >,  __FdoGetSystemPowerState(Fdo));
-
-    status = FdoForwardIrpSynchronously(Fdo, Irp);
-    IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-    return status;
-}
-
-static NTSTATUS
-FdoQuerySystemPower(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
-    )
-{
-    PIO_STACK_LOCATION  StackLocation;
-    SYSTEM_POWER_STATE  SystemState;
-    POWER_ACTION        PowerAction;
-    NTSTATUS            status;
-
-    StackLocation = IoGetCurrentIrpStackLocation(Irp);
-    SystemState = StackLocation->Parameters.Power.State.SystemState;
-    PowerAction = StackLocation->Parameters.Power.ShutdownType;
-
-    Trace("%s: ====> (%s:%s)\n",
-          __FdoGetName(Fdo),
-          SystemPowerStateName(SystemState), 
-          PowerActionName(PowerAction));
-
-    if (SystemState == __FdoGetSystemPowerState(Fdo)) {
-        status = FdoForwardIrpSynchronously(Fdo, Irp);
-        IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-        goto done;
-    }
-
-    status = (SystemState < __FdoGetSystemPowerState(Fdo)) ?
-             FdoQuerySystemPowerUp(Fdo, Irp) :
-             FdoQuerySystemPowerDown(Fdo, Irp);
-
-done:
-    Trace("%s: <==== (%s:%s)(%08x)\n",
-          __FdoGetName(Fdo),
-          SystemPowerStateName(SystemState), 
-          PowerActionName(PowerAction),
-          status);
-
-    return status;
-}
-
-static NTSTATUS
-FdoDevicePower(
-    IN  PXENFILT_THREAD Self,
-    IN  PVOID           Context
-    )
-{
-    PXENFILT_FDO        Fdo = Context;
-    PKEVENT             Event;
-
-    Event = ThreadGetEvent(Self);
-
-    for (;;) {
-        PIRP                Irp;
-        PIO_STACK_LOCATION  StackLocation;
-        UCHAR               MinorFunction;
-
-        if (Fdo->DevicePowerIrp == NULL) {
-            (VOID) KeWaitForSingleObject(Event,
-                                         Executive,
-                                         KernelMode,
-                                         FALSE,
-                                         NULL);
-            KeClearEvent(Event);
-        }
-
-        if (ThreadIsAlerted(Self))
-            break;
-
-        Irp = Fdo->DevicePowerIrp;
-
-        if (Irp == NULL)
-            continue;
-
-        Fdo->DevicePowerIrp = NULL;
-        KeMemoryBarrier();
-
-        StackLocation = IoGetCurrentIrpStackLocation(Irp);
-        MinorFunction = StackLocation->MinorFunction;
-
-        switch (StackLocation->MinorFunction) {
-        case IRP_MN_SET_POWER:
-            (VOID) FdoSetDevicePower(Fdo, Irp);
-            break;
-
-        case IRP_MN_QUERY_POWER:
-            (VOID) FdoQueryDevicePower(Fdo, Irp);
-            break;
-
-        default:
-            ASSERT(FALSE);
-            break;
-        }
-
-        IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
-    }
-
-    return STATUS_SUCCESS;
-}
-
-static NTSTATUS
-FdoSystemPower(
-    IN  PXENFILT_THREAD Self,
-    IN  PVOID           Context
-    )
-{
-    PXENFILT_FDO        Fdo = Context;
-    PKEVENT             Event;
-
-    Event = ThreadGetEvent(Self);
-
-    for (;;) {
-        PIRP                Irp;
-        PIO_STACK_LOCATION  StackLocation;
-        UCHAR               MinorFunction;
-
-        if (Fdo->SystemPowerIrp == NULL) {
-            (VOID) KeWaitForSingleObject(Event,
-                                         Executive,
-                                         KernelMode,
-                                         FALSE,
-                                         NULL);
-            KeClearEvent(Event);
-        }
-
-        if (ThreadIsAlerted(Self))
-            break;
-
-        Irp = Fdo->SystemPowerIrp;
-
-        if (Irp == NULL)
-            continue;
-
-        Fdo->SystemPowerIrp = NULL;
-        KeMemoryBarrier();
-
-        StackLocation = IoGetCurrentIrpStackLocation(Irp);
-        MinorFunction = StackLocation->MinorFunction;
-
-        switch (StackLocation->MinorFunction) {
-        case IRP_MN_SET_POWER:
-            (VOID) FdoSetSystemPower(Fdo, Irp);
-            break;
-
-        case IRP_MN_QUERY_POWER:
-            (VOID) FdoQuerySystemPower(Fdo, Irp);
-            break;
-
-        default:
-            ASSERT(FALSE);
-            break;
-        }
-
-        IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
-    }
-
-    return STATUS_SUCCESS;
-}
-
-__drv_functionClass(IO_COMPLETION_ROUTINE)
-__drv_sameIRQL
-static NTSTATUS
-FdoDispatchPowerCompletion(
-    IN  PDEVICE_OBJECT  DeviceObject,
-    IN  PIRP            Irp,
-    IN  PVOID           Context
-    )
-{
-    PXENFILT_FDO        Fdo = Context;
 
     UNREFERENCED_PARAMETER(DeviceObject);
+
+    ASSERT(Fdo != NULL);
+
+    StackLocation = IoGetCurrentIrpStackLocation(Irp);
+    PowerState = StackLocation->Parameters.Power.State;
+
+    ASSERT3U(PowerState.DeviceState, <,  __FdoGetDevicePowerState(Fdo));
 
     if (Irp->PendingReturned)
         IoMarkIrpPending(Irp);
 
-    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
-    return STATUS_SUCCESS;
+    Trace("%s: %s -> %s\n",
+          __FdoGetName(Fdo),
+          DevicePowerStateName(__FdoGetDevicePowerState(Fdo)),
+          DevicePowerStateName(PowerState.DeviceState));
+
+    PoSetPowerState(Fdo->Dx->DeviceObject,
+                    DevicePowerState,
+                    PowerState);
+
+    __FdoSetDevicePowerState(Fdo, PowerState.DeviceState);
+
+    return STATUS_CONTINUE_COMPLETION;
+}
+
+static FORCEINLINE NTSTATUS
+__FdoSetDevicePowerUp(
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
+    )
+{
+    IoCopyCurrentIrpStackLocationToNext(Irp);
+    IoSetCompletionRoutine(Irp,
+                           FdoSetDevicePowerUpComplete,
+                           Fdo,
+                           TRUE,
+                           TRUE,
+                           TRUE);
+
+    return IoCallDriver(Fdo->LowerDeviceObject, Irp);
+}
+
+static NTSTATUS
+__FdoSetDevicePowerDown(
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
+    )
+{
+    PIO_STACK_LOCATION  StackLocation;
+    POWER_STATE         PowerState;
+
+    StackLocation = IoGetCurrentIrpStackLocation(Irp);
+    PowerState = StackLocation->Parameters.Power.State;
+
+    ASSERT3U(PowerState.DeviceState, >,  __FdoGetDevicePowerState(Fdo));
+
+    Trace("%s: %s -> %s\n",
+          __FdoGetName(Fdo),
+          DevicePowerStateName(__FdoGetDevicePowerState(Fdo)),
+          DevicePowerStateName(PowerState.DeviceState));
+
+    PoSetPowerState(Fdo->Dx->DeviceObject,
+                    DevicePowerState,
+                    PowerState);
+
+    __FdoSetDevicePowerState(Fdo, PowerState.DeviceState);
+
+    IoSkipCurrentIrpStackLocation(Irp);
+    return IoCallDriver(Fdo->LowerDeviceObject, Irp);
+}
+
+static NTSTATUS
+FdoSetDevicePower(
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
+    )
+{
+    PIO_STACK_LOCATION  StackLocation;
+    DEVICE_POWER_STATE  DeviceState;
+    POWER_ACTION        PowerAction;
+    NTSTATUS            status;
+
+    StackLocation = IoGetCurrentIrpStackLocation(Irp);
+    DeviceState = StackLocation->Parameters.Power.State.DeviceState;
+    PowerAction = StackLocation->Parameters.Power.ShutdownType;
+
+    Trace("%s: ====> (%s:%s)\n",
+          __FdoGetName(Fdo),
+          DevicePowerStateName(DeviceState),
+          PowerActionName(PowerAction));
+
+    if (DeviceState == __FdoGetDevicePowerState(Fdo)) {
+        IoSkipCurrentIrpStackLocation(Irp);
+        status = IoCallDriver(Fdo->LowerDeviceObject, Irp);
+
+        goto done;
+    }
+
+    status = (DeviceState < __FdoGetDevicePowerState(Fdo)) ?
+             __FdoSetDevicePowerUp(Fdo, Irp) :
+             __FdoSetDevicePowerDown(Fdo, Irp);
+
+done:
+    Trace("%s: <==== (%s:%s)(%08x)\n",
+          __FdoGetName(Fdo),
+          DevicePowerStateName(DeviceState),
+          PowerActionName(PowerAction),
+          status);
+    return status;
+}
+
+static FORCEINLINE NTSTATUS
+__FdoDispatchDevicePower(
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
+    )
+{
+    PIO_STACK_LOCATION  StackLocation;
+    UCHAR               MinorFunction;
+    NTSTATUS            status;
+
+    StackLocation = IoGetCurrentIrpStackLocation(Irp);
+    MinorFunction = StackLocation->MinorFunction;
+
+    switch (MinorFunction) {
+    case IRP_MN_SET_POWER:
+        status = FdoSetDevicePower(Fdo, Irp);
+        break;
+
+    default:
+        IoSkipCurrentIrpStackLocation(Irp);
+        status = IoCallDriver(Fdo->LowerDeviceObject, Irp);
+        break;
+    }
+
+    return status;
+}
+
+static IO_COMPLETION_ROUTINE FdoSetSystemPowerUpComplete;
+
+_Use_decl_annotations_
+static NTSTATUS
+FdoSetSystemPowerUpComplete(
+    PDEVICE_OBJECT      DeviceObject,
+    PIRP                Irp,
+    PVOID               Context
+    )
+{
+    PXENFILT_FDO        Fdo = (PXENFILT_FDO)Context;
+    PIO_STACK_LOCATION  StackLocation;
+    SYSTEM_POWER_STATE  SystemState;
+
+    UNREFERENCED_PARAMETER(DeviceObject);
+
+    StackLocation = IoGetCurrentIrpStackLocation(Irp);
+    SystemState = StackLocation->Parameters.Power.State.SystemState;
+
+    ASSERT3U(SystemState, <,  __FdoGetSystemPowerState(Fdo));
+
+    if (Irp->PendingReturned)
+        IoMarkIrpPending(Irp);
+
+    Trace("%s: %s -> %s\n",
+          __FdoGetName(Fdo),
+          SystemPowerStateName(__FdoGetSystemPowerState(Fdo)),
+          SystemPowerStateName(SystemState));
+
+    __FdoSetSystemPowerState(Fdo, SystemState);
+
+    return STATUS_CONTINUE_COMPLETION;
+}
+
+static FORCEINLINE NTSTATUS
+__FdoSetSystemPowerUp(
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
+    )
+{
+    IoCopyCurrentIrpStackLocationToNext(Irp);
+    IoSetCompletionRoutine(Irp,
+                           FdoSetSystemPowerUpComplete,
+                           Fdo,
+                           TRUE,
+                           TRUE,
+                           TRUE);
+    return IoCallDriver(Fdo->LowerDeviceObject, Irp);
+}
+
+static FORCEINLINE NTSTATUS
+__FdoSetSystemPowerDown(
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
+    )
+{
+    PIO_STACK_LOCATION  StackLocation;
+    SYSTEM_POWER_STATE  SystemState;
+
+    StackLocation = IoGetCurrentIrpStackLocation(Irp);
+    SystemState = StackLocation->Parameters.Power.State.SystemState;
+
+    ASSERT3U(SystemState, >,  __FdoGetSystemPowerState(Fdo));
+
+    Trace("%s: %s -> %s\n",
+          __FdoGetName(Fdo),
+          SystemPowerStateName(__FdoGetSystemPowerState(Fdo)),
+          SystemPowerStateName(SystemState));
+
+    __FdoSetSystemPowerState(Fdo, SystemState);
+
+    IoSkipCurrentIrpStackLocation(Irp);
+    return IoCallDriver(Fdo->LowerDeviceObject, Irp);
+}
+
+static NTSTATUS
+FdoSetSystemPower(
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
+    )
+{
+    PIO_STACK_LOCATION  StackLocation;
+    SYSTEM_POWER_STATE  SystemState;
+    POWER_ACTION        PowerAction;
+    NTSTATUS            status;
+
+    StackLocation = IoGetCurrentIrpStackLocation(Irp);
+    SystemState = StackLocation->Parameters.Power.State.SystemState;
+    PowerAction = StackLocation->Parameters.Power.ShutdownType;
+
+    Trace("%s: ====> (%s:%s)\n",
+          __FdoGetName(Fdo),
+          SystemPowerStateName(SystemState),
+          PowerActionName(PowerAction));
+
+    if (SystemState == __FdoGetSystemPowerState(Fdo)) {
+        IoSkipCurrentIrpStackLocation(Irp);
+        status = IoCallDriver(Fdo->LowerDeviceObject, Irp);
+
+        goto done;
+    }
+
+    status = (SystemState < __FdoGetSystemPowerState(Fdo)) ?
+             __FdoSetSystemPowerUp(Fdo, Irp) :
+             __FdoSetSystemPowerDown(Fdo, Irp);
+
+done:
+    Trace("%s: <==== (%s:%s)(%08x)\n",
+          __FdoGetName(Fdo),
+          SystemPowerStateName(SystemState),
+          PowerActionName(PowerAction),
+          status);
+    return status;
+}
+
+static FORCEINLINE NTSTATUS
+__FdoDispatchSystemPower(
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
+    )
+{
+    PIO_STACK_LOCATION  StackLocation;
+    UCHAR               MinorFunction;
+    NTSTATUS            status;
+
+    StackLocation = IoGetCurrentIrpStackLocation(Irp);
+    MinorFunction = StackLocation->MinorFunction;
+
+    switch (MinorFunction) {
+    case IRP_MN_SET_POWER:
+        status = FdoSetSystemPower(Fdo, Irp);
+        break;
+
+    default:
+        IoSkipCurrentIrpStackLocation(Irp);
+        status = IoCallDriver(Fdo->LowerDeviceObject, Irp);
+        break;
+    }
+
+    return status;
 }
 
 static NTSTATUS
 FdoDispatchPower(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
     )
 {
     PIO_STACK_LOCATION  StackLocation;
@@ -1791,17 +1417,11 @@ FdoDispatchPower(
     StackLocation = IoGetCurrentIrpStackLocation(Irp);
     MinorFunction = StackLocation->MinorFunction;
 
-    if (MinorFunction != IRP_MN_QUERY_POWER &&
-        MinorFunction != IRP_MN_SET_POWER) {
-        IoCopyCurrentIrpStackLocationToNext(Irp);
-        IoSetCompletionRoutine(Irp,
-                               FdoDispatchPowerCompletion,
-                               Fdo,
-                               TRUE,
-                               TRUE,
-                               TRUE);
+    if (MinorFunction != IRP_MN_SET_POWER) {
+        IoSkipCurrentIrpStackLocation(Irp);
 
         status = IoCallDriver(Fdo->LowerDeviceObject, Irp);
+        IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
 
         goto done;
     }
@@ -1810,50 +1430,31 @@ FdoDispatchPower(
 
     Trace("%s: ====> (%02x:%s)\n",
           __FdoGetName(Fdo),
-          MinorFunction, 
-          PowerMinorFunctionName(MinorFunction)); 
+          MinorFunction,
+          PowerMinorFunctionName(MinorFunction));
 
     switch (PowerType) {
     case DevicePowerState:
-        IoMarkIrpPending(Irp);
-
-        ASSERT3P(Fdo->DevicePowerIrp, ==, NULL);
-        Fdo->DevicePowerIrp = Irp;
-        KeMemoryBarrier();
-
-        ThreadWake(Fdo->DevicePowerThread);
-
-        status = STATUS_PENDING;
+        status = __FdoDispatchDevicePower(Fdo, Irp);
+        IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
         break;
 
     case SystemPowerState:
-        IoMarkIrpPending(Irp);
-
-        ASSERT3P(Fdo->SystemPowerIrp, ==, NULL);
-        Fdo->SystemPowerIrp = Irp;
-        KeMemoryBarrier();
-
-        ThreadWake(Fdo->SystemPowerThread);
-
-        status = STATUS_PENDING;
+        status = __FdoDispatchSystemPower(Fdo, Irp);
+        IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
         break;
 
     default:
-        IoCopyCurrentIrpStackLocationToNext(Irp);
-        IoSetCompletionRoutine(Irp,
-                               FdoDispatchPowerCompletion,
-                               Fdo,
-                               TRUE,
-                               TRUE,
-                               TRUE);
+        IoSkipCurrentIrpStackLocation(Irp);
 
         status = IoCallDriver(Fdo->LowerDeviceObject, Irp);
+        IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
         break;
     }
 
     Trace("%s: <==== (%02x:%s) (%08x)\n",
           __FdoGetName(Fdo),
-          MinorFunction, 
+          MinorFunction,
           PowerMinorFunctionName(MinorFunction),
           status);
 
@@ -1869,31 +1470,10 @@ fail1:
     return status;
 }
 
-__drv_functionClass(IO_COMPLETION_ROUTINE)
-__drv_sameIRQL
-static NTSTATUS
-FdoDispatchDefaultCompletion(
-    IN  PDEVICE_OBJECT  DeviceObject,
-    IN  PIRP            Irp,
-    IN  PVOID           Context
-    )
-{
-    PXENFILT_FDO        Fdo = Context;
-
-    UNREFERENCED_PARAMETER(DeviceObject);
-
-    if (Irp->PendingReturned)
-        IoMarkIrpPending(Irp);
-
-    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
-
-    return STATUS_SUCCESS;
-}
-
 static NTSTATUS
 FdoDispatchDefault(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
     )
 {
     NTSTATUS            status;
@@ -1902,15 +1482,10 @@ FdoDispatchDefault(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    IoCopyCurrentIrpStackLocationToNext(Irp);
-    IoSetCompletionRoutine(Irp,
-                           FdoDispatchDefaultCompletion,
-                           Fdo,
-                           TRUE,
-                           TRUE,
-                           TRUE);
+    IoSkipCurrentIrpStackLocation(Irp);
 
     status = IoCallDriver(Fdo->LowerDeviceObject, Irp);
+    IoReleaseRemoveLock(&Fdo->Dx->RemoveLock, Irp);
 
     return status;
 
@@ -1925,8 +1500,8 @@ fail1:
 
 NTSTATUS
 FdoDispatch(
-    IN  PXENFILT_FDO    Fdo,
-    IN  PIRP            Irp
+    _In_ PXENFILT_FDO   Fdo,
+    _In_ PIRP           Irp
     )
 {
     PIO_STACK_LOCATION  StackLocation;
@@ -1953,8 +1528,8 @@ FdoDispatch(
 
 NTSTATUS
 FdoCreate(
-    IN  PDEVICE_OBJECT                  PhysicalDeviceObject,
-    IN  XENFILT_EMULATED_OBJECT_TYPE    Type
+    _In_ PDEVICE_OBJECT                 PhysicalDeviceObject,
+    _In_ XENFILT_EMULATED_OBJECT_TYPE   Type
     )
 {
     PDEVICE_OBJECT                      LowerDeviceObject;
@@ -2010,21 +1585,13 @@ FdoCreate(
     Fdo->LowerDeviceObject = LowerDeviceObject;
     Fdo->Type = Type;
 
-    status = ThreadCreate(FdoSystemPower, Fdo, &Fdo->SystemPowerThread);
+    status = __FdoSetDeviceID(Fdo);
     if (!NT_SUCCESS(status))
         goto fail4;
 
-    status = ThreadCreate(FdoDevicePower, Fdo, &Fdo->DevicePowerThread);
-    if (!NT_SUCCESS(status))
-        goto fail5;
-
-    status = __FdoSetDeviceID(Fdo);
-    if (!NT_SUCCESS(status))
-        goto fail6;
-
     status = __FdoSetInstanceID(Fdo);
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail5;
 
     __FdoSetName(Fdo);
 
@@ -2049,24 +1616,10 @@ FdoCreate(
 
     return STATUS_SUCCESS;
 
-fail7:
-    Error("fail7\n");
-
-    __FdoClearDeviceID(Fdo);
-
-fail6:
-    Error("fail6\n");
-
-    ThreadAlert(Fdo->DevicePowerThread);
-    ThreadJoin(Fdo->DevicePowerThread);
-    Fdo->DevicePowerThread = NULL;
-
 fail5:
     Error("fail5\n");
 
-    ThreadAlert(Fdo->SystemPowerThread);
-    ThreadJoin(Fdo->SystemPowerThread);
-    Fdo->SystemPowerThread = NULL;
+    __FdoClearDeviceID(Fdo);
 
 fail4:
     Error("fail4\n");
@@ -2097,7 +1650,7 @@ fail1:
 
 VOID
 FdoDestroy(
-    IN  PXENFILT_FDO    Fdo
+    _In_ PXENFILT_FDO   Fdo
     )
 {
     PDEVICE_OBJECT      LowerDeviceObject = Fdo->LowerDeviceObject;
@@ -2125,14 +1678,6 @@ FdoDestroy(
 
     __FdoClearInstanceID(Fdo);
     __FdoClearDeviceID(Fdo);
-
-    ThreadAlert(Fdo->DevicePowerThread);
-    ThreadJoin(Fdo->DevicePowerThread);
-    Fdo->DevicePowerThread = NULL;
-
-    ThreadAlert(Fdo->SystemPowerThread);
-    ThreadJoin(Fdo->SystemPowerThread);
-    Fdo->SystemPowerThread = NULL;
 
     Fdo->Type = XENFILT_EMULATED_OBJECT_TYPE_UNKNOWN;
     Fdo->LowerDeviceObject = NULL;

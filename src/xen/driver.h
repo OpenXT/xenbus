@@ -1,4 +1,5 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms,
@@ -33,8 +34,29 @@
 #define _XEN_DRIVER_H
 
 extern HANDLE
+DriverGetParametersKey(
+    VOID
+    );
+
+extern HANDLE
 DriverGetUnplugKey(
     VOID
+    );
+
+extern HANDLE
+DriverGetForceUnplugKey(
+    VOID
+    );
+
+extern PMDL
+DriverGetNamedPages(
+    _In_ PSTR   Name,
+    _In_ ULONG  Count
+    );
+
+extern VOID
+DriverPutNamedPages(
+    _In_ PMDL   Mdl
     );
 
 #endif  // _XEN_DRIVER_H

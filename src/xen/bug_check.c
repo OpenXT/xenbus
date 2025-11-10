@@ -1,31 +1,32 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -42,6 +43,7 @@
 #include "bug_check.h"
 #include "dbg_print.h"
 #include "assert.h"
+#include "process.h"
 
 static KBUGCHECK_CALLBACK_RECORD BugCheckBugCheckCallbackRecord;
 
@@ -59,7 +61,7 @@ BugCheckTeardown(
 
 static VOID
 BugCheckDumpExceptionRecord(
-    IN  PEXCEPTION_RECORD   Exception
+    _In_ PEXCEPTION_RECORD  Exception
     )
 {
     __try {
@@ -106,7 +108,7 @@ BugCheckDumpExceptionRecord(
 #if defined(__i386__)
 static VOID
 BugCheckDumpContext(
-    IN  PCONTEXT    Context
+    _In_ PCONTEXT   Context
     )
 {
     __try {
@@ -188,7 +190,7 @@ BugCheckDumpContext(
 
 static VOID
 BugCheckStackDump(
-    IN  PCONTEXT    Context
+    _In_ PCONTEXT   Context
     )
 {
 #define PARAMETER_COUNT     3
@@ -211,7 +213,7 @@ BugCheckStackDump(
             ULONG       EIP;
             ULONG       Parameter[PARAMETER_COUNT] = {0};
             ULONG       Index;
-            PCHAR       Name;
+            PSTR        Name;
             ULONG       Offset;
 
             NextEBP = *(PULONG)EBP;
@@ -267,7 +269,7 @@ BugCheckStackDump(
 #elif defined(__x86_64__)
 static VOID
 BugCheckDumpContext(
-    IN  PCONTEXT    Context
+    _In_ PCONTEXT   Context
     )
 {
     __try {
@@ -491,7 +493,7 @@ RtlVirtualUnwind(
 
 static VOID
 BugCheckStackDump(
-    IN  PCONTEXT    Context
+    _In_ PCONTEXT   Context
     )
 {
 #define PARAMETER_COUNT     4
@@ -504,7 +506,7 @@ BugCheckStackDump(
 
         LogPrintf(LOG_LEVEL_CRITICAL,
                   "%s|BUGCHECK: STACK:\n",
-                  __MODULE__);	
+                  __MODULE__);
 
         for (Iteration = 0; Iteration < MAXIMUM_ITERATIONS; Iteration++) {
             PRUNTIME_FUNCTION   FunctionEntry;
@@ -513,7 +515,7 @@ BugCheckStackDump(
             ULONG64             RSP;
             ULONG64             Parameter[PARAMETER_COUNT] = {0};
             ULONG               Index;
-            PCHAR               Name;
+            PSTR                Name;
             ULONG64             Offset;
 
             if (Context->Rip == 0)
@@ -605,10 +607,10 @@ RtlCaptureContext(
 
 static VOID
 BugCheckIrqlNotLessOrEqual(
-    IN  ULONG_PTR   Parameter1,
-    IN  ULONG_PTR   Parameter2,
-    IN  ULONG_PTR   Parameter3,
-    IN  ULONG_PTR   Parameter4
+    _In_ ULONG_PTR  Parameter1,
+    _In_ ULONG_PTR  Parameter2,
+    _In_ ULONG_PTR  Parameter3,
+    _In_ ULONG_PTR  Parameter4
     )
 {
     __try {
@@ -617,7 +619,7 @@ BugCheckIrqlNotLessOrEqual(
         KIRQL       Irql = (KIRQL)Parameter2;
         ULONG_PTR   Access = Parameter3;
         PVOID       Address = (PVOID)Parameter4;
-        PCHAR       Name;
+        PSTR        Name;
         ULONG_PTR   Offset;
 
         LogPrintf(LOG_LEVEL_CRITICAL,
@@ -656,10 +658,10 @@ BugCheckIrqlNotLessOrEqual(
 
 static VOID
 BugCheckDriverIrqlNotLessOrEqual(
-    IN  ULONG_PTR   Parameter1,
-    IN  ULONG_PTR   Parameter2,
-    IN  ULONG_PTR   Parameter3,
-    IN  ULONG_PTR   Parameter4
+    _In_ ULONG_PTR  Parameter1,
+    _In_ ULONG_PTR  Parameter2,
+    _In_ ULONG_PTR  Parameter3,
+    _In_ ULONG_PTR  Parameter4
     )
 {
     __try {
@@ -668,7 +670,7 @@ BugCheckDriverIrqlNotLessOrEqual(
         KIRQL       Irql = (KIRQL)Parameter2;
         ULONG_PTR   Access = Parameter3;
         PVOID       Address = (PVOID)Parameter4;
-        PCHAR       Name;
+        PSTR        Name;
         ULONG_PTR   Offset;
 
         LogPrintf(LOG_LEVEL_CRITICAL,
@@ -707,10 +709,10 @@ BugCheckDriverIrqlNotLessOrEqual(
 
 static VOID
 BugCheckSystemServiceException(
-    IN  ULONG_PTR   Parameter1,
-    IN  ULONG_PTR   Parameter2,
-    IN  ULONG_PTR   Parameter3,
-    IN  ULONG_PTR   Parameter4
+    _In_ ULONG_PTR  Parameter1,
+    _In_ ULONG_PTR  Parameter2,
+    _In_ ULONG_PTR  Parameter3,
+    _In_ ULONG_PTR  Parameter4
     )
 {
     __try {
@@ -730,10 +732,10 @@ BugCheckSystemServiceException(
 
 static VOID
 BugCheckSystemThreadExceptionNotHandled(
-    IN  ULONG_PTR   Parameter1,
-    IN  ULONG_PTR   Parameter2,
-    IN  ULONG_PTR   Parameter3,
-    IN  ULONG_PTR   Parameter4
+    _In_ ULONG_PTR  Parameter1,
+    _In_ ULONG_PTR  Parameter2,
+    _In_ ULONG_PTR  Parameter3,
+    _In_ ULONG_PTR  Parameter4
     )
 {
     __try {
@@ -741,7 +743,7 @@ BugCheckSystemThreadExceptionNotHandled(
         PVOID               Address = (PVOID)Parameter2;
         PEXCEPTION_RECORD   Exception = (PEXCEPTION_RECORD)Parameter3;
         PCONTEXT            Context = (PCONTEXT)Parameter4;
-        PCHAR               Name;
+        PSTR                Name;
         ULONG_PTR           Offset;
 
         ModuleLookup((ULONG_PTR)Address, &Name, &Offset);
@@ -771,17 +773,17 @@ BugCheckSystemThreadExceptionNotHandled(
 
 static VOID
 BugCheckKernelModeExceptionNotHandled(
-    IN  ULONG_PTR   Parameter1,
-    IN  ULONG_PTR   Parameter2,
-    IN  ULONG_PTR   Parameter3,
-    IN  ULONG_PTR   Parameter4
+    _In_ ULONG_PTR  Parameter1,
+    _In_ ULONG_PTR  Parameter2,
+    _In_ ULONG_PTR  Parameter3,
+    _In_ ULONG_PTR  Parameter4
     )
 {
     __try {
         CONTEXT     Context;
         ULONG       Code = (ULONG)Parameter1;
         PVOID       Address = (PVOID)Parameter2;
-        PCHAR       Name;
+        PSTR        Name;
         ULONG_PTR	Offset;
 
         UNREFERENCED_PARAMETER(Parameter3);
@@ -818,17 +820,17 @@ BugCheckKernelModeExceptionNotHandled(
 
 static VOID
 BugCheckCriticalObjectTermination(
-    IN  ULONG_PTR   Parameter1,
-    IN  ULONG_PTR   Parameter2,
-    IN  ULONG_PTR   Parameter3,
-    IN  ULONG_PTR   Parameter4
+    _In_ ULONG_PTR  Parameter1,
+    _In_ ULONG_PTR  Parameter2,
+    _In_ ULONG_PTR  Parameter3,
+    _In_ ULONG_PTR  Parameter4
     )
 {
     __try {
         ULONG       Type = (ULONG)Parameter1;
         PVOID	    Object = (PVOID)Parameter2;
-        PCHAR	    Name = (PCHAR)Parameter3;
-        PCHAR       Reason = (PCHAR)Parameter4;
+        PSTR        Name = (PSTR)Parameter3;
+        PSTR        Reason = (PSTR)Parameter4;
         CONTEXT     Context;
 
         LogPrintf(LOG_LEVEL_CRITICAL,
@@ -857,10 +859,10 @@ BugCheckCriticalObjectTermination(
 
 static VOID
 BugCheckInaccessibleBootDevice(
-    IN  ULONG_PTR   Parameter1,
-    IN  ULONG_PTR   Parameter2,
-    IN  ULONG_PTR   Parameter3,
-    IN  ULONG_PTR   Parameter4
+    _In_ ULONG_PTR  Parameter1,
+    _In_ ULONG_PTR  Parameter2,
+    _In_ ULONG_PTR  Parameter3,
+    _In_ ULONG_PTR  Parameter4
     )
 {
     __try {
@@ -885,10 +887,10 @@ BugCheckInaccessibleBootDevice(
 
 static VOID
 BugCheckDriverPowerStateFailure(
-    IN  ULONG_PTR       Parameter1,
-    IN  ULONG_PTR       Parameter2,
-    IN  ULONG_PTR       Parameter3,
-    IN  ULONG_PTR       Parameter4
+    _In_ ULONG_PTR      Parameter1,
+    _In_ ULONG_PTR      Parameter2,
+    _In_ ULONG_PTR      Parameter3,
+    _In_ ULONG_PTR      Parameter4
     )
 {
     __try {
@@ -928,10 +930,10 @@ BugCheckDriverPowerStateFailure(
 
             LogPrintf(LOG_LEVEL_CRITICAL,
                       "%s|BUGCHECK: IRP STACK:\n",
-                      __MODULE__);	
+                      __MODULE__);
 
             for (Index = 0; Index <= Irp->StackCount; Index++) {
-                PCHAR       Name;
+                PSTR        Name;
                 ULONG_PTR   Offset;
 
                 LogPrintf(LOG_LEVEL_CRITICAL,
@@ -970,7 +972,7 @@ BugCheckDriverPowerStateFailure(
                           StackLocation->Context);
 
                 StackLocation++;
-            } 
+            }
 
             break;
         }
@@ -984,15 +986,15 @@ BugCheckDriverPowerStateFailure(
 
 static VOID
 BugCheckAssertionFailure(
-    IN  ULONG_PTR   Parameter1,
-    IN  ULONG_PTR   Parameter2,
-    IN  ULONG_PTR   Parameter3,
-    IN  ULONG_PTR   Parameter4
+    _In_ ULONG_PTR  Parameter1,
+    _In_ ULONG_PTR  Parameter2,
+    _In_ ULONG_PTR  Parameter3,
+    _In_ ULONG_PTR  Parameter4
     )
 {
     __try {
-        PCHAR       Text = (PCHAR)Parameter1;
-        PCHAR       File = (PCHAR)Parameter2;
+        PSTR        Text = (PSTR)Parameter1;
+        PSTR        File = (PSTR)Parameter2;
         ULONG       Line = (ULONG)Parameter3;
         CONTEXT     Context;
 
@@ -1013,9 +1015,71 @@ BugCheckAssertionFailure(
     }
 }
 
+/// <summary>
+/// Bug check handler for critocal process died.
+/// https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/bug-check-0xef--critical-process-died
+/// </summary>
+/// <param name="Parameter1">process object.</param>
+/// <param name="Parameter2">If 0, a process terminated. If 1, a thread terminated.</param>
+/// <param name="Parameter3">reserved.</param>
+/// <param name="Parameter4">reserved.</param>
+static VOID
+BugCheckBugEFCriticalProcessDied(
+    _In_ ULONG_PTR  Parameter1,
+    _In_ ULONG_PTR  Parameter2,
+    _In_ ULONG_PTR  Parameter3,
+    _In_ ULONG_PTR  Parameter4
+    )
+{
+    __try {
+        ULONG_PTR       Code = Parameter2;
+        CONTEXT         Context;
+
+        UNREFERENCED_PARAMETER(Parameter3);
+        UNREFERENCED_PARAMETER(Parameter4);
+
+        switch (Code) {
+        case 0x0: {
+            PEPROCESS   EProcess = (PEPROCESS)Parameter1;
+            PSTR        Name = ProcessGetImageFileName(EProcess);
+
+            if (Name == NULL)
+                Name = "(unknown)";
+
+            LogPrintf(LOG_LEVEL_CRITICAL,
+                      "%s|BUGCHECK: CRITICAL PROCESS: %p Name:%s DIED IRQL:%d \n",
+                      __MODULE__,
+                      EProcess,
+                      Name,
+                      KeGetCurrentIrql());
+            break;
+        }
+
+        case 0x1: {
+            PETHREAD    EThread = (PETHREAD)Parameter1;
+
+            LogPrintf(LOG_LEVEL_CRITICAL,
+                      "%s|BUGCHECK: CRITICAL THREAD: %p DIED IRQL:%d \n",
+                      __MODULE__,
+                      EThread,
+                      KeGetCurrentIrql());
+            break;
+        }
+
+        default:
+            break;
+        }
+
+        RtlCaptureContext(&Context);
+        BugCheckStackDump(&Context);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // Error of some kind
+    }
+}
+
 struct _BUG_CODE_ENTRY {
     ULONG       Code;
-    const CHAR  *Name;
+    PCSTR       Name;
     VOID        (*Handler)(ULONG_PTR, ULONG_PTR, ULONG_PTR, ULONG_PTR);
 };
 
@@ -1034,6 +1098,7 @@ struct _BUG_CODE_ENTRY   BugCodeTable[] = {
     DEFINE_HANDLER(INACCESSIBLE_BOOT_DEVICE, BugCheckInaccessibleBootDevice),
     DEFINE_HANDLER(DRIVER_POWER_STATE_FAILURE, BugCheckDriverPowerStateFailure),
     DEFINE_HANDLER(ASSERTION_FAILURE, BugCheckAssertionFailure),
+    DEFINE_HANDLER(CRITICAL_PROCESS_DIED, BugCheckBugEFCriticalProcessDied),
     { 0, NULL, NULL }
 };
 
@@ -1056,10 +1121,11 @@ BugCheckDefaultHandler(
 
 KBUGCHECK_CALLBACK_ROUTINE BugCheckBugCheckCallback;
 
-VOID                     
+_Use_decl_annotations_
+VOID
 BugCheckBugCheckCallback(
-    IN  PVOID               Argument,
-    IN  ULONG               Length
+    _In_ PVOID              Argument,
+    _In_ ULONG              Length
     )
 {
     extern PULONG_PTR       KiBugCheckData;

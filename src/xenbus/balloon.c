@@ -1,31 +1,32 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -40,10 +41,7 @@
 #include "assert.h"
 #include "util.h"
 
-#define MDL_SIZE_MAX        ((1 << (RTL_FIELD_SIZE(MDL, Size) * 8)) - 1)
-#define MAX_PAGES_PER_MDL   ((MDL_SIZE_MAX - sizeof(MDL)) / sizeof(PFN_NUMBER))
-
-#define XENBUS_BALLOON_PFN_ARRAY_SIZE  (MAX_PAGES_PER_MDL)
+#define XENBUS_BALLOON_PFN_ARRAY_SIZE  8192
 
 typedef struct _XENBUS_BALLOON_FIST {
     BOOLEAN Inflation;
@@ -57,7 +55,6 @@ struct _XENBUS_BALLOON_CONTEXT {
     PKEVENT                     LowMemoryEvent;
     HANDLE                      LowMemoryHandle;
     ULONGLONG                   Size;
-    MDL                         Mdl;
     PFN_NUMBER                  PfnArray[XENBUS_BALLOON_PFN_ARRAY_SIZE];
     XENBUS_RANGE_SET_INTERFACE  RangeSetInterface;
     PXENBUS_RANGE_SET           RangeSet;
@@ -69,7 +66,7 @@ struct _XENBUS_BALLOON_CONTEXT {
 
 static FORCEINLINE PVOID
 __BalloonAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, XENBUS_BALLOON_TAG);
@@ -77,7 +74,7 @@ __BalloonAllocate(
 
 static FORCEINLINE VOID
 __BalloonFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, XENBUS_BALLOON_TAG);
@@ -93,13 +90,13 @@ __BalloonFree(
 
 static VOID
 BalloonHeapPushDown(
-    IN  PPFN_NUMBER Heap,
-    IN  ULONG       Start,
-    IN  ULONG       Count
+    _In_ PPFN_NUMBER    Heap,
+    _In_ ULONG          Start,
+    _In_ ULONG          Count
     )
 {
-    ULONG           LeftChild;
-    ULONG           RightChild;
+    ULONG               LeftChild;
+    ULONG               RightChild;
 
 again:
     LeftChild = Start * 2 + 1;
@@ -159,11 +156,11 @@ again:
 // Turn an array of PFNs into a max heap (largest node at root)
 static VOID
 BalloonCreateHeap(
-    IN  PPFN_NUMBER PfnArray,
-    IN  ULONG       Count
+    _In_ PPFN_NUMBER    PfnArray,
+    _In_ ULONG          Count
     )
 {
-    LONG            Index = (LONG)Count;
+    LONG                Index = (LONG)Count;
 
     while (--Index >= 0)
         BalloonHeapPushDown(PfnArray, (ULONG)Index, Count);
@@ -171,13 +168,13 @@ BalloonCreateHeap(
 
 static VOID
 BalloonSort(
-    IN  PXENBUS_BALLOON_CONTEXT Context,
-    IN  ULONG                   Count
+    _In_ PXENBUS_BALLOON_CONTEXT    Context,
+    _In_ ULONG                      Count
     )
 {
-    PPFN_NUMBER                 PfnArray;
-    ULONG                       Unsorted;
-    ULONG                       Index;
+    PPFN_NUMBER                     PfnArray;
+    ULONG                           Unsorted;
+    ULONG                           Index;
 
     PfnArray = Context->PfnArray;
 
@@ -193,102 +190,76 @@ BalloonSort(
         ASSERT3U(PfnArray[Index], <, PfnArray[Index + 1]);
 }
 
+_IRQL_requires_(PASSIVE_LEVEL)
 static PMDL
 BalloonAllocatePagesForMdl(
-    IN  ULONG       Count
+    _In_ ULONG      Count
     )
 {
     LARGE_INTEGER   LowAddress;
     LARGE_INTEGER   HighAddress;
     LARGE_INTEGER   SkipBytes;
     SIZE_T          TotalBytes;
-    PMDL            Mdl;
+
+    ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
 
     LowAddress.QuadPart = 0ull;
     HighAddress.QuadPart = ~0ull;
     SkipBytes.QuadPart = 0ull;
     TotalBytes = (SIZE_T)Count << PAGE_SHIFT;
-    
-    Mdl = MmAllocatePagesForMdlEx(LowAddress,
-                                  HighAddress,
-                                  SkipBytes,
-                                  TotalBytes,
-                                  MmCached,
-                                  MM_DONT_ZERO_ALLOCATION);
-    if (Mdl == NULL)
-        goto done;
 
-    ASSERT((Mdl->MdlFlags & (MDL_MAPPED_TO_SYSTEM_VA |
-                             MDL_PARTIAL_HAS_BEEN_MAPPED |
-                             MDL_PARTIAL |
-                             MDL_PARENT_MAPPED_SYSTEM_VA |
-                             MDL_SOURCE_IS_NONPAGED_POOL |
-                             MDL_IO_SPACE)) == 0);
-
-done:
-    return Mdl;
+    return MmAllocatePagesForMdlEx(LowAddress,
+                                   HighAddress,
+                                   SkipBytes,
+                                   TotalBytes,
+                                   MmCached,
+                                   MM_DONT_ZERO_ALLOCATION |
+                                   MM_ALLOCATE_PREFER_CONTIGUOUS |
+                                   MM_ALLOCATE_AND_HOT_REMOVE);
 }
 
 static VOID
-BalloonFreePagesFromMdl(
-    IN  PMDL        Mdl,
-    IN  BOOLEAN     Check
+BalloonFreePages(
+    _In_ PPFN_NUMBER    Pfn,
+    _In_ ULONG          Count
     )
 {
-    volatile UCHAR  *Mapping;
-    ULONG           Index;
+    PFN_NUMBER          RangeStart, RangeEnd;
+    NTSTATUS            Status;
 
-    if (!Check)
-        goto done;
+    RangeStart = 0;
+    while (RangeStart < Count) {
+        PHYSICAL_ADDRESS    StartAddress;
+        LARGE_INTEGER       NumberOfBytes;
 
-    // Sanity check:
-    //
-    // Make sure that things written to the page really do stick. 
-    // If the page is still ballooned out at the hypervisor level
-    // then writes will be discarded and reads will give back
-    // all 1s.
+        for (RangeEnd = RangeStart; RangeEnd < Count; RangeEnd++) {
+            if (Pfn[RangeEnd] != Pfn[RangeStart] + (RangeEnd - RangeStart))
+                break;
+        }
 
-    Mapping = MmMapLockedPagesSpecifyCache(Mdl,
-                                           KernelMode,
-                                           MmCached,
-                                           NULL,
-                                           FALSE,
-                                           LowPagePriority);
-    if (Mapping == NULL)
-        // Windows couldn't map the memory. That's kind of sad, but not
-        // really an error: it might be that we're very low on kernel
-        // virtual address space.
-        goto done;
+        StartAddress.QuadPart = Pfn[RangeStart] << PAGE_SHIFT;
+        NumberOfBytes.QuadPart = (RangeEnd - RangeStart) << PAGE_SHIFT;
 
-    // Write and read the first byte in each page to make sure it's backed
-    // by RAM.
-    ASSERT((Mdl->ByteCount & (PAGE_SIZE - 1)) == 0);
+        Status = MmAddPhysicalMemory(&StartAddress, &NumberOfBytes);
+        if (!NT_SUCCESS(Status)) {
+            Error("MmAddPhysicalMemory failed: %08x (PFN %llx + %llx pages)\n",
+                  Status,
+                  Pfn[RangeStart],
+                  RangeEnd - RangeStart);
+            break;
+        }
 
-    for (Index = 0; Index < (Mdl->ByteCount >> PAGE_SHIFT); Index++) {
-        UCHAR   Byte;
-
-        ASSERT3U(Index << PAGE_SHIFT, <, Mdl->ByteCount);
-        Mapping[Index << PAGE_SHIFT] = (UCHAR)Index;
-
-        KeMemoryBarrier();
-        Byte = Mapping[Index << PAGE_SHIFT];
-
-        ASSERT3U(Byte, ==, (UCHAR)Index);
+        RangeStart = RangeEnd;
     }
-
-    MmUnmapLockedPages((PVOID)Mapping, Mdl);
-
-done:
-    MmFreePagesFromMdl(Mdl);
 }
 
 #define XENBUS_BALLOON_MIN_PAGES_PER_S 1000ull
 
 static ULONG
 BalloonAllocatePfnArray(
-    IN      PXENBUS_BALLOON_CONTEXT Context,
-    IN      ULONG                   Requested,
-    IN OUT  PBOOLEAN                Slow
+    _In_ PXENBUS_BALLOON_CONTEXT    Context,
+    _In_ ULONG                      Requested,
+    _Out_ PBOOLEAN                  Slow
     )
 {
     LARGE_INTEGER                   Start;
@@ -310,8 +281,6 @@ BalloonAllocatePfnArray(
     if (Mdl == NULL)
         goto done;
 
-    ASSERT(Mdl->ByteOffset == 0);
-    ASSERT((Mdl->ByteCount & (PAGE_SIZE - 1)) == 0);
     ASSERT(Mdl->MdlFlags & MDL_PAGES_LOCKED);
 
     Count = Mdl->ByteCount >> PAGE_SHIFT;
@@ -330,41 +299,14 @@ done:
     Rate = (ULONGLONG)(Count * 1000) / TimeDelta;
     *Slow = (Rate < XENBUS_BALLOON_MIN_PAGES_PER_S) ? TRUE : FALSE;
 
-    Info("%u page(s) at %llu pages/s\n", Count, Rate);
-    return Count;
-}
-
-static ULONG
-BalloonPopulatePhysmap(
-    IN  ULONG       Requested,
-    IN  PPFN_NUMBER PfnArray
-    )
-{
-    LARGE_INTEGER   Start;
-    LARGE_INTEGER   End;
-    ULONGLONG       TimeDelta;
-    ULONGLONG       Rate;
-    ULONG           Count;
-
-    ASSERT(Requested != 0);
-
-    KeQuerySystemTime(&Start);
-
-    Count = MemoryPopulatePhysmap(PAGE_ORDER_4K, Requested, PfnArray);
-
-    KeQuerySystemTime(&End);
-    TimeDelta = __max(((End.QuadPart - Start.QuadPart) / 10000ull), 1);
-
-    Rate = (ULONGLONG)(Count * 1000) / TimeDelta;
-
-    Info("%u page(s) at %llu pages/s\n", Count, Rate);
+    Trace("%u page(s) at %llu pages/s\n", Count, Rate);
     return Count;
 }
 
 static ULONG
 BalloonPopulatePfnArray(
-    IN      PXENBUS_BALLOON_CONTEXT Context,
-    IN      ULONG                   Requested
+    _In_ PXENBUS_BALLOON_CONTEXT    Context,
+    _In_ ULONG                      Requested
     )
 {
     LARGE_INTEGER                   Start;
@@ -373,6 +315,7 @@ BalloonPopulatePfnArray(
     ULONGLONG                       Rate;
     ULONG                           Index;
     ULONG                           Count;
+    NTSTATUS                        status;
 
     ASSERT(Requested != 0);
     ASSERT3U(Requested, <=, XENBUS_BALLOON_PFN_ARRAY_SIZE);
@@ -382,7 +325,6 @@ BalloonPopulatePfnArray(
 
     for (Index = 0; Index < Requested; Index++) {
         LONGLONG    Pfn;
-        NTSTATUS    status;
 
         status = XENBUS_RANGE_SET(Pop,
                                   &Context->RangeSetInterface,
@@ -394,12 +336,15 @@ BalloonPopulatePfnArray(
         Context->PfnArray[Index] = (PFN_NUMBER)Pfn;
     }
 
-    Count = BalloonPopulatePhysmap(Requested, Context->PfnArray);
+    status = MemoryPopulatePhysmap(PAGE_ORDER_4K,
+                                   Requested,
+                                   Context->PfnArray,
+                                   &Count);
+    if (!NT_SUCCESS(status))
+        Count = 0;
 
     Index = Count;
     while (Index < Requested) {
-        NTSTATUS    status;
-
         status = XENBUS_RANGE_SET(Put,
                                   &Context->RangeSetInterface,
                                   Context->RangeSet,
@@ -417,41 +362,14 @@ BalloonPopulatePfnArray(
 
     Rate = (ULONGLONG)(Count * 1000) / TimeDelta;
 
-    Info("%u page(s) at %llu pages/s\n", Count, Rate);
-    return Count;
-}
-
-static ULONG
-BalloonDecreaseReservation(
-    IN  ULONG       Requested,
-    IN  PPFN_NUMBER PfnArray
-    )
-{
-    LARGE_INTEGER   Start;
-    LARGE_INTEGER   End;
-    ULONGLONG       TimeDelta;
-    ULONGLONG       Rate;
-    ULONG           Count;
-
-    ASSERT(Requested != 0);
-
-    KeQuerySystemTime(&Start);
-
-    Count = MemoryDecreaseReservation(PAGE_ORDER_4K, Requested, PfnArray);
-
-    KeQuerySystemTime(&End);
-    TimeDelta = __max(((End.QuadPart - Start.QuadPart) / 10000ull), 1);
-
-    Rate = (ULONGLONG)(Count * 1000) / TimeDelta;
-
-    Info("%u page(s) at %llu pages/s\n", Count, Rate);
+    Trace("%u page(s) at %llu pages/s\n", Count, Rate);
     return Count;
 }
 
 static ULONG
 BalloonReleasePfnArray(
-    IN      PXENBUS_BALLOON_CONTEXT Context,
-    IN      ULONG                   Requested
+    _In_ PXENBUS_BALLOON_CONTEXT    Context,
+    _In_ ULONG                      Requested
     )
 {
     LARGE_INTEGER                   Start;
@@ -460,6 +378,7 @@ BalloonReleasePfnArray(
     ULONGLONG                       Rate;
     ULONG                           Index;
     ULONG                           Count;
+    NTSTATUS                        status;
 
     ASSERT3U(Requested, <=, XENBUS_BALLOON_PFN_ARRAY_SIZE);
 
@@ -471,8 +390,6 @@ BalloonReleasePfnArray(
 
     Index = 0;
     while (Index < Requested) {
-        NTSTATUS    status;
-
         status = XENBUS_RANGE_SET(Put,
                                   &Context->RangeSetInterface,
                                   Context->RangeSet,
@@ -485,13 +402,16 @@ BalloonReleasePfnArray(
     }
     Requested = Index;
 
-    Count = BalloonDecreaseReservation(Requested, Context->PfnArray);
+    status = MemoryDecreaseReservation(PAGE_ORDER_4K,
+                                       Requested,
+                                       Context->PfnArray,
+                                       &Count);
+    if (!NT_SUCCESS(status))
+        Count = 0;
 
     RtlZeroMemory(Context->PfnArray, Count * sizeof (PFN_NUMBER));
 
     for (Index = Count; Index < Requested; Index++) {
-        NTSTATUS    status;
-
         status = XENBUS_RANGE_SET(Get,
                                   &Context->RangeSetInterface,
                                   Context->RangeSet,
@@ -508,15 +428,14 @@ done:
 
     Rate = (ULONGLONG)(Count * 1000) / TimeDelta;
 
-    Info("%u page(s) at %llu pages/s\n", Count, Rate);
+    Trace("%u page(s) at %llu pages/s\n", Count, Rate);
     return Count;
 }
 
 static ULONG
 BalloonFreePfnArray(
-    IN      PXENBUS_BALLOON_CONTEXT Context,
-    IN      ULONG                   Requested,
-    IN      BOOLEAN                 Check
+    _In_ PXENBUS_BALLOON_CONTEXT    Context,
+    _In_ ULONG                      Requested
     )
 {
     LARGE_INTEGER                   Start;
@@ -525,7 +444,6 @@ BalloonFreePfnArray(
     ULONGLONG                       Rate;
     ULONG                           Index;
     ULONG                           Count;
-    PMDL                            Mdl;
 
     ASSERT3U(Requested, <=, XENBUS_BALLOON_PFN_ARRAY_SIZE);
 
@@ -535,31 +453,11 @@ BalloonFreePfnArray(
     if (Requested == 0)
         goto done;
 
-    ASSERT(IsZeroMemory(&Context->Mdl, sizeof (MDL)));
-
     for (Index = 0; Index < Requested; Index++)
         ASSERT(Context->PfnArray[Index] != 0);
 
-    Mdl = &Context->Mdl;
-
-#pragma warning(push)
-#pragma warning(disable:28145)  // The opaque MDL structure should not be modified by a driver
-
-    Mdl->Next = NULL;
-    Mdl->Size = (SHORT)(sizeof(MDL) + (sizeof(PFN_NUMBER) * Requested));
-    Mdl->MdlFlags = MDL_PAGES_LOCKED;
-    Mdl->Process = NULL;
-    Mdl->MappedSystemVa = NULL;
-    Mdl->StartVa = NULL;
-    Mdl->ByteCount = Requested << PAGE_SHIFT;
-    Mdl->ByteOffset = 0;
-
-#pragma warning(pop)
-
-    BalloonFreePagesFromMdl(Mdl, Check);
+    BalloonFreePages(Context->PfnArray, Requested);
     Count = Requested;
-
-    RtlZeroMemory(&Context->Mdl, sizeof (MDL));
 
     RtlZeroMemory(Context->PfnArray, Count * sizeof (PFN_NUMBER));
 
@@ -571,17 +469,17 @@ done:
 
     Rate = (ULONGLONG)(Count * 1000) / TimeDelta;
 
-    Info("%u page(s) at %llu pages/s\n", Count, Rate);
+    Trace("%u page(s) at %llu pages/s\n", Count, Rate);
     return Count;
 }
 
 static BOOLEAN
 BalloonLowMemory(
-    IN  PXENBUS_BALLOON_CONTEXT Context
+    _In_ PXENBUS_BALLOON_CONTEXT    Context
     )
 {
-    LARGE_INTEGER               Timeout;
-    NTSTATUS                    status;
+    LARGE_INTEGER                   Timeout;
+    NTSTATUS                        status;
 
     Timeout.QuadPart = 0;
 
@@ -596,15 +494,15 @@ BalloonLowMemory(
 
 static NTSTATUS
 BalloonDeflate(
-    IN  PXENBUS_BALLOON_CONTEXT Context,
-    IN  ULONGLONG               Requested
+    _In_ PXENBUS_BALLOON_CONTEXT    Context,
+    _In_ ULONGLONG                  Requested
     )
 {
-    LARGE_INTEGER               Start;
-    LARGE_INTEGER               End;
-    ULONGLONG                   Count;
-    ULONGLONG                   TimeDelta;
-    NTSTATUS                    status;
+    LARGE_INTEGER                   Start;
+    LARGE_INTEGER                   End;
+    ULONGLONG                       Count;
+    ULONGLONG                       TimeDelta;
+    NTSTATUS                        status;
 
     status = STATUS_UNSUCCESSFUL;
     if (Context->FIST.Deflation)
@@ -626,7 +524,7 @@ BalloonDeflate(
         if (Populated < ThisTime)
             status = STATUS_RETRY;
 
-        Freed = BalloonFreePfnArray(Context, Populated, TRUE);
+        Freed = BalloonFreePfnArray(Context, Populated);
         ASSERT(Freed == Populated);
 
         Count += Freed;
@@ -645,15 +543,15 @@ done:
 
 static NTSTATUS
 BalloonInflate(
-    IN  PXENBUS_BALLOON_CONTEXT Context,
-    IN  ULONGLONG               Requested
+    _In_ PXENBUS_BALLOON_CONTEXT    Context,
+    _In_ ULONGLONG                  Requested
     )
 {
-    LARGE_INTEGER               Start;
-    LARGE_INTEGER               End;
-    ULONGLONG                   Count;
-    ULONGLONG                   TimeDelta;
-    NTSTATUS                    status;
+    LARGE_INTEGER                   Start;
+    LARGE_INTEGER                   End;
+    ULONGLONG                       Count;
+    ULONGLONG                       TimeDelta;
+    NTSTATUS                        status;
 
     status = STATUS_UNSUCCESSFUL;
     if (Context->FIST.Inflation)
@@ -689,7 +587,7 @@ BalloonInflate(
                           &(Context->PfnArray[Released]),
                           (Allocated - Released) * sizeof (PFN_NUMBER));
 
-            Freed = BalloonFreePfnArray(Context, Allocated - Released, FALSE);
+            Freed = BalloonFreePfnArray(Context, Allocated - Released);
             ASSERT3U(Freed, ==, Allocated - Released);
         }
 
@@ -712,11 +610,11 @@ done:
 
 static VOID
 BalloonGetFISTEntries(
-    IN  PXENBUS_BALLOON_CONTEXT Context
+    _In_ PXENBUS_BALLOON_CONTEXT    Context
     )
 {
-    PCHAR                       Buffer;
-    NTSTATUS                    status;
+    PSTR                            Buffer;
+    NTSTATUS                        status;
 
     status = XENBUS_STORE(Read,
                           &Context->StoreInterface,
@@ -752,14 +650,14 @@ BalloonGetFISTEntries(
 
     if (Context->FIST.Inflation)
         Warning("inflation disallowed\n");
-        
+
     if (Context->FIST.Deflation)
         Warning("deflation disallowed\n");
 }
 
-static FORCEINLINE PCHAR
+static FORCEINLINE PSTR
 __BalloonStatus(
-    IN  NTSTATUS    status
+    _In_ NTSTATUS   status
     )
 {
     switch (status) {
@@ -780,8 +678,8 @@ __BalloonStatus(
 
 NTSTATUS
 BalloonAdjust(
-    IN  PINTERFACE          Interface,
-    IN  ULONGLONG           Size
+    _In_ PINTERFACE         Interface,
+    _In_ ULONGLONG          Size
     )
 {
     PXENBUS_BALLOON_CONTEXT Context = Interface->Context;
@@ -811,7 +709,7 @@ BalloonAdjust(
 
 ULONGLONG
 BalloonGetSize(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENBUS_BALLOON_CONTEXT Context = Interface->Context;
@@ -821,7 +719,7 @@ BalloonGetSize(
 
 static NTSTATUS
 BalloonAcquire(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENBUS_BALLOON_CONTEXT Context = Interface->Context;
@@ -882,7 +780,7 @@ fail1:
 
 static VOID
 BalloonRelease(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENBUS_BALLOON_CONTEXT Context = Interface->Context;
@@ -922,15 +820,15 @@ static struct _XENBUS_BALLOON_INTERFACE_V1 BalloonInterfaceVersion1 = {
     BalloonAdjust,
     BalloonGetSize
 };
-                     
+
 NTSTATUS
 BalloonInitialize(
-    IN  PXENBUS_FDO             Fdo,
-    OUT PXENBUS_BALLOON_CONTEXT *Context
+    _In_ PXENBUS_FDO                    Fdo,
+    _Outptr_ PXENBUS_BALLOON_CONTEXT    *Context
     )
 {
-    UNICODE_STRING              Unicode;
-    NTSTATUS                    status;
+    UNICODE_STRING                      Unicode;
+    NTSTATUS                            status;
 
     Trace("====>\n");
 
@@ -987,10 +885,10 @@ fail1:
 
 NTSTATUS
 BalloonGetInterface(
-    IN      PXENBUS_BALLOON_CONTEXT Context,
-    IN      ULONG                   Version,
-    IN OUT  PINTERFACE              Interface,
-    IN      ULONG                   Size
+    _In_ PXENBUS_BALLOON_CONTEXT    Context,
+    _In_ ULONG                      Version,
+    _Inout_ PINTERFACE              Interface,
+    _In_ ULONG                      Size
     )
 {
     NTSTATUS                        status;
@@ -1021,11 +919,11 @@ BalloonGetInterface(
     }
 
     return status;
-}   
+}
 
 ULONG
 BalloonGetReferences(
-    IN  PXENBUS_BALLOON_CONTEXT Context
+    _In_ PXENBUS_BALLOON_CONTEXT    Context
     )
 {
     return Context->References;
@@ -1033,7 +931,7 @@ BalloonGetReferences(
 
 VOID
 BalloonTeardown(
-    IN  PXENBUS_BALLOON_CONTEXT Context
+    _In_ PXENBUS_BALLOON_CONTEXT    Context
     )
 {
     Trace("====>\n");

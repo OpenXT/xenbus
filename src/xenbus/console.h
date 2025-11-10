@@ -1,4 +1,5 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms,
@@ -42,26 +43,26 @@ typedef struct _XENBUS_CONSOLE_CONTEXT  XENBUS_CONSOLE_CONTEXT, *PXENBUS_CONSOLE
 
 extern NTSTATUS
 ConsoleInitialize(
-    IN  PXENBUS_FDO             Fdo,
-    OUT PXENBUS_CONSOLE_CONTEXT *Context
+    _In_ PXENBUS_FDO                    Fdo,
+    _Outptr_ PXENBUS_CONSOLE_CONTEXT    *Context
     );
 
 extern NTSTATUS
 ConsoleGetInterface(
-    IN      PXENBUS_CONSOLE_CONTEXT Context,
-    IN      ULONG                   Version,
-    IN OUT  PINTERFACE              Interface,
-    IN      ULONG                   Size
+    _In_ PXENBUS_CONSOLE_CONTEXT    Context,
+    _In_ ULONG                      Version,
+    _Inout_ PINTERFACE              Interface,
+    _In_ ULONG                      Size
     );
 
 extern ULONG
 ConsoleGetReferences(
-    IN  PXENBUS_CONSOLE_CONTEXT Context
+    _In_ PXENBUS_CONSOLE_CONTEXT    Context
     );
 
 extern VOID
 ConsoleTeardown(
-    IN  PXENBUS_CONSOLE_CONTEXT Context
+    _In_ PXENBUS_CONSOLE_CONTEXT    Context
     );
 
 #endif  // _XENBUS_CONSOLE_H

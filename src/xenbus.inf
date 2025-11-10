@@ -1,4 +1,5 @@
-; Copyright (c) Citrix Systems Inc.
+; Copyright (c) Xen Project.
+; Copyright (c) Cloud Software Group, Inc.
 ; All rights reserved.
 ;
 ; Redistribution and use in source and binary forms, 
@@ -36,10 +37,10 @@ Provider=%Vendor%
 CatalogFile=xenbus.cat
 DriverVer=@INF_DATE@,@MAJOR_VERSION@.@MINOR_VERSION@.@MICRO_VERSION@.@BUILD_NUMBER@
 DriverPackageDisplayName=%DiskDesc%
+PnpLockdown=1
 
 [DestinationDirs] 
 DefaultDestDir=12 
-CoInst_CopyFiles=11
 Monitor_CopyFiles=11
 
 [SourceDisksNames]
@@ -49,7 +50,6 @@ Monitor_CopyFiles=11
 xen.sys=0,,
 xenbus.sys=0,,
 xenfilt.sys=0,,
-xenbus_coinst.dll=0,,
 xenbus_monitor.exe=0,,
 xenbus_monitor.dll=0,,
 
@@ -57,9 +57,6 @@ xenbus_monitor.dll=0,,
 xen.sys
 xenbus.sys
 xenfilt.sys
-
-[CoInst_CopyFiles]
-xenbus_coinst_@MAJOR_VERSION@_@MINOR_VERSION@_@MICRO_VERSION@_@BUILD_NUMBER@.dll,xenbus_coinst.dll
 
 [Monitor_CopyFiles]
 xenbus_monitor_@MAJOR_VERSION@_@MINOR_VERSION@_@MICRO_VERSION@_@BUILD_NUMBER@.exe,xenbus_monitor.exe
@@ -69,16 +66,15 @@ xenbus_monitor_@MAJOR_VERSION@_@MINOR_VERSION@_@MICRO_VERSION@_@BUILD_NUMBER@.dl
 %Vendor%=Inst,NT@INF_ARCH@
 
 [Inst.NT@INF_ARCH@]
-; DisplayName		Section		DeviceID
-; -----------		-------		--------
-
-%XenBusName%		=XenBus_Inst,	PCI\VEN_5853&DEV_@VENDOR_DEVICE_ID@&SUBSYS_@VENDOR_DEVICE_ID@5853&REV_01
-%XenBusName%		=XenBus_Inst,	PCI\VEN_5853&DEV_0002
-%XenBusName%		=XenBus_Inst,	PCI\VEN_5853&DEV_0001
+%XenBusName%=XenBus_Inst,\
+PCI\VEN_5853&DEV_@VENDOR_DEVICE_ID@&SUBSYS_@VENDOR_DEVICE_ID@5853&REV_01,\
+PCI\VEN_5853&DEV_0002,\
+PCI\VEN_5853&DEV_0001
 
 [XenBus_Inst] 
 CopyFiles=XenBus_CopyFiles
 CopyFiles=Monitor_CopyFiles
+FeatureScore=0xFE
 
 [XenBus_Inst.Services]
 AddService=xenbus_monitor,%SPSVCSINST_STARTSERVICE%,Monitor_Service,Monitor_EventLog
@@ -92,7 +88,7 @@ StartType=%SERVICE_BOOT_START%
 ErrorControl=%SERVICE_ERROR_NORMAL% 
 ServiceBinary=%12%\xenbus.sys 
 LoadOrderGroup="Boot Bus Extender"
-AddReg = XenBus_Parameters, XenBus_Interrupts
+AddReg = XenBus_Parameters, XenBus_Interrupts, XenBus_Unplug
 
 [XenBus_Parameters]
 HKR,"Parameters",,0x00000010
@@ -106,6 +102,10 @@ HKR,"Interrupt Management\MessageSignaledInterruptProperties",,0x00000010
 HKR,"Interrupt Management\MessageSignaledInterruptProperties","MSISupported",0x00010001,1
 HKR,"Interrupt Management\GroupPolicy",,0x00010001,1
 
+[XenBus_Unplug]
+HKLM,%UnplugKey%,"NICS",0x00010001,0
+HKLM,%UnplugKey%,"DISKS",0x00010001,0
+
 [XenFilt_Service] 
 DisplayName=%XenFiltName%
 ServiceType=%SERVICE_KERNEL_DRIVER% 
@@ -114,11 +114,20 @@ ErrorControl=%SERVICE_ERROR_NORMAL%
 ServiceBinary=%12%\xenfilt.sys 
 LoadOrderGroup="Boot Bus Extender"
 AddReg = XenFilt_Parameters
+; Attention: XenFilt_Filters should only be used with forced-activation Xenbus
+AddReg = XenFilt_Filters  ; @FORCE_ACTIVATE@
 
 [XenFilt_Parameters]
 HKR,"Parameters",,0x00000010
 HKR,"Parameters","*PNP0A03",0x00000000,"PCI"
 HKR,"Parameters","Internal_IDE_Channel",0x00000000,"IDE"
+HKR,"Parameters\Precedence","PCI\VEN_5853&DEV_0001",0x00010001,0x0001  ; @FORCE_ACTIVATE@
+HKR,"Parameters\Precedence","PCI\VEN_5853&DEV_0002",0x00010001,0x0002  ; @FORCE_ACTIVATE@
+HKR,"Parameters\Precedence","PCI\VEN_5853&DEV_@VENDOR_DEVICE_ID@",0x00010001,0x@VENDOR_DEVICE_ID@  ; @FORCE_ACTIVATE@
+
+[XenFilt_Filters]  ; @FORCE_ACTIVATE@
+HKLM,%SystemClassKey%,"UpperFilters",0x00010008,"XENFILT"  ; @FORCE_ACTIVATE@
+HKLM,%HDCClassKey%,"UpperFilters",0x00010008,"XENFILT"  ; @FORCE_ACTIVATE@
 
 [Monitor_Service]
 DisplayName=%MonitorName%
@@ -134,6 +143,7 @@ HKR,"Parameters",,0x00000010
 HKR,"Parameters","RequestKey",0x00000000,%RequestKey%
 HKR,"Parameters","DialogTitle",0x00000000,%DialogTitle%
 HKR,"Parameters","DialogText",0x00000000,%DialogText%
+HKR,"Parameters","DialogQuestion",0x00000000,%DialogQuestion%
 
 [Monitor_EventLog]
 AddReg=Monitor_EventLog_AddReg
@@ -141,13 +151,6 @@ AddReg=Monitor_EventLog_AddReg
 [Monitor_EventLog_AddReg]
 HKR,,EventMessageFile,0x00020000,"%%SystemRoot%%\System32\xenbus_monitor_@MAJOR_VERSION@_@MINOR_VERSION@_@MICRO_VERSION@_@BUILD_NUMBER@.dll"
 HKR,,TypesSupported,0x00010001,7
-
-[XenBus_Inst.CoInstallers]
-CopyFiles=CoInst_CopyFiles
-AddReg=CoInst_AddReg
-
-[CoInst_AddReg]
-HKR,,CoInstallers32,0x00010000,"xenbus_coinst_@MAJOR_VERSION@_@MINOR_VERSION@_@MICRO_VERSION@_@BUILD_NUMBER@.dll,Entry"
 
 [Strings] 
 
@@ -158,8 +161,12 @@ XenFiltName="@PRODUCT_NAME@ Generic Bus Filter"
 MonitorName="@PRODUCT_NAME@ PV Driver Monitor"
 MonitorDesc="Provides support for @PRODUCT_NAME@ PV drivers"
 RequestKey="SYSTEM\CurrentControlSet\Services\xenbus_monitor\Request"
+UnplugKey="SYSTEM\CurrentControlSet\Services\XEN\Unplug"
+SystemClassKey="SYSTEM\CurrentControlSet\Control\Class\{4d36e97d-e325-11ce-bfc1-08002be10318}"
+HDCClassKey="SYSTEM\CurrentControlSet\Control\Class\{4d36e96a-e325-11ce-bfc1-08002be10318}"
 DialogTitle="@PRODUCT_NAME@"
-DialogText="needs to restart the system to complete installation. Press 'Yes' to restart the system now or 'No' if you plan to restart the system later."
+DialogText="needs to restart the system to complete installation."
+DialogQuestion="Press 'Yes' to restart the system now or 'No' if you plan to restart the system later."
 
 SERVICE_BOOT_START=0x0 
 SERVICE_SYSTEM_START=0x1 

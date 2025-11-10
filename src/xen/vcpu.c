@@ -39,20 +39,20 @@
 
 static LONG_PTR
 VcpuOp(
-    IN  ULONG           Command,
-    IN  unsigned int    vcpu_id,
-    IN  PVOID           Argument
+    _In_ ULONG          Command,
+    _In_ unsigned int   vcpu_id,
+    _In_opt_ PVOID      Argument
     )
 {
     return HYPERCALL(LONG_PTR, vcpu_op, 3, Command, vcpu_id, Argument);
 }
 
-__checkReturn
+_Check_return_
 XEN_API
 NTSTATUS
 VcpuSetPeriodicTimer(
-    IN  unsigned int                vcpu_id,
-    IN  PLARGE_INTEGER              Period
+    _In_ unsigned int               vcpu_id,
+    _In_opt_ PLARGE_INTEGER         Period
     )
 {
     LONG_PTR                        rc;
@@ -79,4 +79,42 @@ fail1:
     Error("fail1 (%08x)\n", status);
 
     return status;
+}
+
+_Check_return_
+XEN_API
+NTSTATUS
+VcpuRegisterVcpuInfo(
+    _In_ unsigned int               vcpu_id,
+    _In_ PFN_NUMBER                 Pfn,
+    _In_ ULONG                      Offset
+    )
+{
+    struct vcpu_register_vcpu_info  op;
+    LONG_PTR                        rc;
+    NTSTATUS                        status;
+
+    op.mfn = (xen_pfn_t)Pfn;
+    op.offset = Offset;
+    op.rsvd = 0;
+
+    //
+    // NOTE: This has to be called on the CPU with the matching vcpu_id
+    //       otherwise Xen will fail the hypercall with -EINVAL.
+    //
+
+    rc = VcpuOp(VCPUOP_register_vcpu_info, vcpu_id, &op);
+
+    if (rc < 0) {
+        ERRNO_TO_STATUS(-rc, status);
+        goto fail1;
+    }
+
+    return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+
 }

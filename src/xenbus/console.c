@@ -1,4 +1,5 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms,
@@ -79,7 +80,7 @@ C_ASSERT(sizeof (struct xencons_interface) <= PAGE_SIZE);
 
 static FORCEINLINE PVOID
 __ConsoleAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, XENBUS_CONSOLE_TAG);
@@ -87,7 +88,7 @@ __ConsoleAllocate(
 
 static FORCEINLINE VOID
 __ConsoleFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, XENBUS_CONSOLE_TAG);
@@ -95,7 +96,7 @@ __ConsoleFree(
 
 static ULONG
 ConsoleOutAvailable(
-    IN  PXENBUS_CONSOLE_CONTEXT Context
+    _In_ PXENBUS_CONSOLE_CONTEXT    Context
     )
 {
     struct xencons_interface    *Shared;
@@ -116,15 +117,15 @@ ConsoleOutAvailable(
 
 static ULONG
 ConsoleCopyToOut(
-    IN  PXENBUS_CONSOLE_CONTEXT Context,
-    IN  PCHAR                   Data,
-    IN  ULONG                   Length
+    _In_ PXENBUS_CONSOLE_CONTEXT    Context,
+    _In_ PSTR                       Data,
+    _In_ ULONG                      Length
     )
 {
-    struct xencons_interface    *Shared;
-    XENCONS_RING_IDX            cons;
-    XENCONS_RING_IDX            prod;
-    ULONG                       Offset;
+    struct xencons_interface        *Shared;
+    XENCONS_RING_IDX                cons;
+    XENCONS_RING_IDX                prod;
+    ULONG                           Offset;
 
     Shared = Context->Shared;
 
@@ -170,12 +171,12 @@ ConsoleCopyToOut(
 
 static ULONG
 ConsoleInAvailable(
-    IN  PXENBUS_CONSOLE_CONTEXT Context
+    _In_ PXENBUS_CONSOLE_CONTEXT    Context
     )
 {
-    struct xencons_interface    *Shared;
-    XENCONS_RING_IDX            cons;
-    XENCONS_RING_IDX            prod;
+    struct xencons_interface        *Shared;
+    XENCONS_RING_IDX                cons;
+    XENCONS_RING_IDX                prod;
 
     Shared = Context->Shared;
 
@@ -191,15 +192,15 @@ ConsoleInAvailable(
 
 static ULONG
 ConsoleCopyFromIn(
-    IN  PXENBUS_CONSOLE_CONTEXT Context,
-    IN  PCHAR                   Data,
-    IN  ULONG                   Length
+    _In_ PXENBUS_CONSOLE_CONTEXT    Context,
+    _In_ PSTR                       Data,
+    _In_ ULONG                      Length
     )
 {
-    struct xencons_interface    *Shared;
-    XENCONS_RING_IDX            cons;
-    XENCONS_RING_IDX            prod;
-    ULONG                       Offset;
+    struct xencons_interface        *Shared;
+    XENCONS_RING_IDX                cons;
+    XENCONS_RING_IDX                prod;
+    ULONG                           Offset;
 
     Shared = Context->Shared;
 
@@ -245,10 +246,10 @@ ConsoleCopyFromIn(
 
 static VOID
 ConsolePoll(
-    IN  PXENBUS_CONSOLE_CONTEXT Context
+    _In_ PXENBUS_CONSOLE_CONTEXT    Context
     )
 {
-    PLIST_ENTRY                 ListEntry;
+    PLIST_ENTRY                     ListEntry;
 
     for (ListEntry = Context->WakeupList.Flink;
          ListEntry != &Context->WakeupList;
@@ -271,10 +272,10 @@ _IRQL_requires_(DISPATCH_LEVEL)
 _IRQL_requires_same_
 VOID
 ConsoleDpc(
-    IN  PKDPC               Dpc,
-    IN  PVOID               _Context,
-    IN  PVOID               Argument1,
-    IN  PVOID               Argument2
+    _In_ PKDPC              Dpc,
+    _In_ PVOID              _Context,
+    _In_ PVOID              Argument1,
+    _In_ PVOID              Argument2
     )
 {
     PXENBUS_CONSOLE_CONTEXT Context = _Context;
@@ -297,8 +298,8 @@ _IRQL_requires_(HIGH_LEVEL)
 _IRQL_requires_same_
 BOOLEAN
 ConsoleEvtchnCallback(
-    IN  PKINTERRUPT         InterruptObject,
-    IN  PVOID               Argument
+    _In_ PKINTERRUPT        InterruptObject,
+    _In_ PVOID              Argument
     )
 {
     PXENBUS_CONSOLE_CONTEXT Context = Argument;
@@ -317,7 +318,7 @@ ConsoleEvtchnCallback(
 
 static VOID
 ConsoleDisable(
-    IN PXENBUS_CONSOLE_CONTEXT  Context
+    _In_ PXENBUS_CONSOLE_CONTEXT    Context
     )
 {
     LogPrintf(LOG_LEVEL_INFO,
@@ -331,17 +332,19 @@ ConsoleDisable(
     Context->Channel = NULL;
 }
 
-static VOID
+static NTSTATUS
 ConsoleEnable(
-    IN PXENBUS_CONSOLE_CONTEXT  Context
+    _In_ PXENBUS_CONSOLE_CONTEXT    Context
     )
 {
-    ULONGLONG                   Value;
-    ULONG                       Port;
-    NTSTATUS                    status;
+    ULONGLONG                       Value;
+    ULONG                           Port;
+    NTSTATUS                        status;
 
+    /* In some Xen deployments the tool-stack may not set up the console */
     status = HvmGetParam(HVM_PARAM_CONSOLE_EVTCHN, &Value);
-    ASSERT(NT_SUCCESS(status));
+    if (!NT_SUCCESS(status))
+        goto fail1;
 
     Port = (ULONG)Value;
 
@@ -369,16 +372,23 @@ ConsoleEnable(
     // Trigger an initial poll
     if (KeInsertQueueDpc(&Context->Dpc, NULL, NULL))
         Context->Dpcs++;
+
+    return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
 }
 
-static
+static NTSTATUS
 ConsoleGetAddress(
-    IN  PXENBUS_CONSOLE_CONTEXT Context,
-    OUT PPHYSICAL_ADDRESS       Address
+    _In_ PXENBUS_CONSOLE_CONTEXT    Context,
+    _Out_ PPHYSICAL_ADDRESS         Address
     )
 {
-    PFN_NUMBER                  Pfn;
-    NTSTATUS                    status;
+    PFN_NUMBER                      Pfn;
+    NTSTATUS                        status;
 
     status = XENBUS_GNTTAB(QueryReference,
                            &Context->GnttabInterface,
@@ -405,7 +415,7 @@ fail1:
 
 static VOID
 ConsoleSuspendCallbackLate(
-    IN  PVOID                   Argument
+    _In_ PVOID                  Argument
     )
 {
     PXENBUS_CONSOLE_CONTEXT     Context = Argument;
@@ -429,8 +439,8 @@ ConsoleSuspendCallbackLate(
 
 static VOID
 ConsoleDebugCallback(
-    IN  PVOID               Argument,
-    IN  BOOLEAN             Crashing
+    _In_ PVOID              Argument,
+    _In_ BOOLEAN            Crashing
     )
 {
     PXENBUS_CONSOLE_CONTEXT Context = Argument;
@@ -476,7 +486,7 @@ ConsoleDebugCallback(
              ListEntry != &(Context->WakeupList);
              ListEntry = ListEntry->Flink) {
             PXENBUS_CONSOLE_WAKEUP  Wakeup;
-            PCHAR                   Name;
+            PSTR                    Name;
             ULONG_PTR               Offset;
 
             Wakeup = CONTAINING_RECORD(ListEntry,
@@ -503,7 +513,7 @@ ConsoleDebugCallback(
 
 static BOOLEAN
 ConsoleCanRead(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENBUS_CONSOLE_CONTEXT Context = Interface->Context;
@@ -519,9 +529,9 @@ ConsoleCanRead(
 
 static ULONG
 ConsoleRead(
-    IN  PINTERFACE          Interface,
-    IN  PCHAR               Data,
-    IN  ULONG               Length
+    _In_ PINTERFACE         Interface,
+    _In_ PSTR               Data,
+    _In_ ULONG              Length
     )
 {
     PXENBUS_CONSOLE_CONTEXT Context = Interface->Context;
@@ -552,7 +562,7 @@ done:
 
 static BOOLEAN
 ConsoleCanWrite(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENBUS_CONSOLE_CONTEXT Context = Interface->Context;
@@ -568,9 +578,9 @@ ConsoleCanWrite(
 
 static ULONG
 ConsoleWrite(
-    IN  PINTERFACE          Interface,
-    IN  PCHAR               Data,
-    IN  ULONG               Length
+    _In_ PINTERFACE         Interface,
+    _In_ PSTR               Data,
+    _In_ ULONG              Length
     )
 {
     PXENBUS_CONSOLE_CONTEXT Context = Interface->Context;
@@ -609,14 +619,14 @@ RtlCaptureStackBackTrace(
 
 static NTSTATUS
 ConsoleWakeupAdd(
-    IN  PINTERFACE          	Interface,
-    IN  PKEVENT             	Event,
-    OUT PXENBUS_CONSOLE_WAKEUP	*Wakeup
+    _In_ PINTERFACE                 Interface,
+    _In_ PKEVENT                    Event,
+    _Outptr_ PXENBUS_CONSOLE_WAKEUP *Wakeup
     )
 {
-    PXENBUS_CONSOLE_CONTEXT     Context = Interface->Context;
-    KIRQL                       Irql;
-    NTSTATUS                    status;
+    PXENBUS_CONSOLE_CONTEXT         Context = Interface->Context;
+    KIRQL                           Irql;
+    NTSTATUS                        status;
 
     *Wakeup = __ConsoleAllocate(sizeof (XENBUS_CONSOLE_WAKEUP));
 
@@ -643,8 +653,8 @@ fail1:
 
 static VOID
 ConsoleWakeupRemove(
-    IN  PINTERFACE          	Interface,
-    IN  PXENBUS_CONSOLE_WAKEUP	Wakeup
+    _In_ PINTERFACE             Interface,
+    _In_ PXENBUS_CONSOLE_WAKEUP Wakeup
     )
 {
     PXENBUS_CONSOLE_CONTEXT     Context = Interface->Context;
@@ -667,7 +677,7 @@ ConsoleWakeupRemove(
 
 static NTSTATUS
 ConsoleAcquire(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENBUS_CONSOLE_CONTEXT Context = Interface->Context;
@@ -702,11 +712,13 @@ ConsoleAcquire(
     if (!NT_SUCCESS(status))
         goto fail4;
 
-    ConsoleEnable(Context);
+    status = ConsoleEnable(Context);
+    if (!NT_SUCCESS(status))
+        goto fail5;
 
     status = XENBUS_SUSPEND(Acquire, &Context->SuspendInterface);
     if (!NT_SUCCESS(status))
-        goto fail5;
+        goto fail6;
 
     status = XENBUS_SUSPEND(Register,
                             &Context->SuspendInterface,
@@ -715,11 +727,11 @@ ConsoleAcquire(
                             Context,
                             &Context->SuspendCallbackLate);
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail7;
 
     status = XENBUS_DEBUG(Acquire, &Context->DebugInterface);
     if (!NT_SUCCESS(status))
-        goto fail7;
+        goto fail8;
 
     status = XENBUS_DEBUG(Register,
                           &Context->DebugInterface,
@@ -728,7 +740,7 @@ ConsoleAcquire(
                           Context,
                           &Context->DebugCallback);
     if (!NT_SUCCESS(status))
-        goto fail8;
+        goto fail9;
 
     Trace("<====\n");
 
@@ -737,28 +749,31 @@ done:
 
     return STATUS_SUCCESS;
 
-fail8:
-    Error("fail8\n");
+fail9:
+    Error("fail9\n");
 
     XENBUS_DEBUG(Release, &Context->DebugInterface);
 
-fail7:
-    Error("fail7\n");
+fail8:
+    Error("fail8\n");
 
     XENBUS_SUSPEND(Deregister,
                    &Context->SuspendInterface,
                    Context->SuspendCallbackLate);
     Context->SuspendCallbackLate = NULL;
 
-fail6:
-    Error("fail6\n");
+fail7:
+    Error("fail7\n");
 
     XENBUS_SUSPEND(Release, &Context->SuspendInterface);
 
-fail5:
-    Error("fail5\n");
+fail6:
+    Error("fail6\n");
 
     ConsoleDisable(Context);
+
+fail5:
+    Error("fail5\n");
 
     XENBUS_EVTCHN(Release, &Context->EvtchnInterface);
 
@@ -792,7 +807,7 @@ fail1:
 
 static VOID
 ConsoleRelease(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENBUS_CONSOLE_CONTEXT Context = Interface->Context;
@@ -853,11 +868,11 @@ static struct _XENBUS_CONSOLE_INTERFACE_V1 ConsoleInterfaceVersion1 = {
 
 NTSTATUS
 ConsoleInitialize(
-    IN  PXENBUS_FDO             Fdo,
-    OUT PXENBUS_CONSOLE_CONTEXT *Context
+    _In_ PXENBUS_FDO                    Fdo,
+    _Outptr_ PXENBUS_CONSOLE_CONTEXT    *Context
     )
 {
-    NTSTATUS                    status;
+    NTSTATUS                            status;
 
     Trace("====>\n");
 
@@ -916,10 +931,10 @@ fail1:
 
 NTSTATUS
 ConsoleGetInterface(
-    IN      PXENBUS_CONSOLE_CONTEXT   Context,
-    IN      ULONG                   Version,
-    IN OUT  PINTERFACE              Interface,
-    IN      ULONG                   Size
+    _In_ PXENBUS_CONSOLE_CONTEXT    Context,
+    _In_ ULONG                      Version,
+    _Inout_ PINTERFACE              Interface,
+    _In_ ULONG                      Size
     )
 {
     NTSTATUS                        status;
@@ -954,7 +969,7 @@ ConsoleGetInterface(
 
 ULONG
 ConsoleGetReferences(
-    IN  PXENBUS_CONSOLE_CONTEXT   Context
+    _In_ PXENBUS_CONSOLE_CONTEXT  Context
     )
 {
     return Context->References;
@@ -962,7 +977,7 @@ ConsoleGetReferences(
 
 VOID
 ConsoleTeardown(
-    IN  PXENBUS_CONSOLE_CONTEXT   Context
+    _In_ PXENBUS_CONSOLE_CONTEXT  Context
     )
 {
     Trace("====>\n");
