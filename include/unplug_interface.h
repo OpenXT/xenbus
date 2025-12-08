@@ -1,31 +1,32 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -44,20 +45,20 @@
     \brief Acquire a reference to the UNPLUG interface
 
     \param Interface The interface header
-*/  
+*/
 typedef NTSTATUS
 (*XENBUS_UNPLUG_ACQUIRE)(
-    IN  PINTERFACE  Interface
+    _In_ PINTERFACE Interface
     );
 
 /*! \typedef XENBUS_UNPLUG_RELEASE
     \brief Release a reference to the UNPLUG interface
 
     \param Interface The interface header
-*/  
+*/
 typedef VOID
 (*XENBUS_UNPLUG_RELEASE)(
-    IN  PINTERFACE  Interface
+    _In_ PINTERFACE Interface
     );
 
 /*! \enum _XENBUS_UNPLUG_DEVICE_TYPE
@@ -76,12 +77,48 @@ typedef enum _XENBUS_UNPLUG_DEVICE_TYPE {
     \param Type The type of device
     \param Make Set to TRUE if the request is being made, FALSE if it is
            being revoked.
-*/  
+*/
 typedef VOID
 (*XENBUS_UNPLUG_REQUEST)(
-    IN  PINTERFACE                  Interface,
-    IN  XENBUS_UNPLUG_DEVICE_TYPE   Type,
-    IN  BOOLEAN                     Make
+    _In_ PINTERFACE                 Interface,
+    _In_ XENBUS_UNPLUG_DEVICE_TYPE  Type,
+    _In_ BOOLEAN                    Make
+    );
+
+/*! \typedef XENBUS_UNPLUG_IS_REQUESTED
+    \brief Has a type of emulated device been unplugged
+
+    \param Interface The interface header
+    \param Type The type of device
+
+    \return TRUE The type of device has been unplugged this boot.
+*/
+typedef BOOLEAN
+(*XENBUS_UNPLUG_IS_REQUESTED)(
+    _In_ PINTERFACE                 Interface,
+    _In_ XENBUS_UNPLUG_DEVICE_TYPE  Type
+    );
+
+/*! \typedef XENBUS_UNPLUG_BOOT_EMULATED
+    \brief Should the boot disk be emulated
+
+    \param Interface The interface header
+*/
+typedef BOOLEAN
+(*XENBUS_UNPLUG_BOOT_EMULATED)(
+    _In_ PINTERFACE                 Interface
+    );
+
+/*! \typedef XENBUS_UNPLUG_REBOOT
+    \brief Request a reboot to complete setup
+
+    \param Interface The interface header
+    \param Module The module name requesting a reboot
+*/
+typedef VOID
+(*XENBUS_UNPLUG_REBOOT)(
+    _In_ PINTERFACE                 Interface,
+    _In_ PSTR                       Module
     );
 
 // {73db6517-3d06-4937-989f-199b7501e229}
@@ -99,7 +136,33 @@ struct _XENBUS_UNPLUG_INTERFACE_V1 {
     XENBUS_UNPLUG_REQUEST   UnplugRequest;
 };
 
-typedef struct _XENBUS_UNPLUG_INTERFACE_V1 XENBUS_UNPLUG_INTERFACE, *PXENBUS_UNPLUG_INTERFACE;
+/*! \struct _XENBUS_UNPLUG_INTERFACE_V2
+    \brief UNPLUG interface version 2
+    \ingroup interfaces
+*/
+struct _XENBUS_UNPLUG_INTERFACE_V2 {
+    INTERFACE                   Interface;
+    XENBUS_UNPLUG_ACQUIRE       UnplugAcquire;
+    XENBUS_UNPLUG_RELEASE       UnplugRelease;
+    XENBUS_UNPLUG_REQUEST       UnplugRequest;
+    XENBUS_UNPLUG_IS_REQUESTED  UnplugIsRequested;
+};
+
+/*! \struct _XENBUS_UNPLUG_INTERFACE_V3
+    \brief UNPLUG interface version 3
+    \ingroup interfaces
+*/
+struct _XENBUS_UNPLUG_INTERFACE_V3 {
+    INTERFACE                   Interface;
+    XENBUS_UNPLUG_ACQUIRE       UnplugAcquire;
+    XENBUS_UNPLUG_RELEASE       UnplugRelease;
+    XENBUS_UNPLUG_REQUEST       UnplugRequest;
+    XENBUS_UNPLUG_IS_REQUESTED  UnplugIsRequested;
+    XENBUS_UNPLUG_BOOT_EMULATED UnplugBootEmulated;
+    XENBUS_UNPLUG_REBOOT        UnplugReboot;
+};
+
+typedef struct _XENBUS_UNPLUG_INTERFACE_V3 XENBUS_UNPLUG_INTERFACE, *PXENBUS_UNPLUG_INTERFACE;
 
 /*! \def XENBUS_UNPLUG
     \brief Macro at assist in method invocation
@@ -110,7 +173,6 @@ typedef struct _XENBUS_UNPLUG_INTERFACE_V1 XENBUS_UNPLUG_INTERFACE, *PXENBUS_UNP
 #endif  // _WINDLL
 
 #define XENBUS_UNPLUG_INTERFACE_VERSION_MIN  1
-#define XENBUS_UNPLUG_INTERFACE_VERSION_MAX  1
+#define XENBUS_UNPLUG_INTERFACE_VERSION_MAX  3
 
 #endif  // _XENBUS_UNPLUG_INTERFACE_H
-

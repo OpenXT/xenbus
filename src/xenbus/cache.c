@@ -1,31 +1,32 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -52,25 +53,26 @@ typedef struct _XENBUS_CACHE_MAGAZINE {
     PVOID   Slot[XENBUS_CACHE_MAGAZINE_SLOTS];
 } XENBUS_CACHE_MAGAZINE, *PXENBUS_CACHE_MAGAZINE;
 
-
 #define XENBUS_CACHE_SLAB_MAGIC 'BALS'
 
+typedef struct _XENBUS_CACHE_MASK {
+    ULONG   Size;
+    ULONG   Count;
+    ULONG   Mask[1];
+} XENBUS_CACHE_MASK, *PXENBUS_CACHE_MASK;
+
+#define BITS_PER_ULONG  (sizeof (ULONG) * 8)
+
 typedef struct _XENBUS_CACHE_SLAB {
-    ULONG           Magic;
-    PXENBUS_CACHE   Cache;
-    LIST_ENTRY      ListEntry;
-    USHORT          MaximumOccupancy;
-    USHORT          CurrentOccupancy;
-    ULONG           *Mask;
-    UCHAR           Buffer[1];
+    ULONG               Magic;
+    PXENBUS_CACHE       Cache;
+    LIST_ENTRY          ListEntry;
+    PXENBUS_CACHE_MASK  Constructed;
+    PXENBUS_CACHE_MASK  Allocated;
+    UCHAR               Buffer[1];
 } XENBUS_CACHE_SLAB, *PXENBUS_CACHE_SLAB;
 
-#define BITS_PER_ULONG (sizeof (ULONG) * 8)
-#define MINIMUM_OBJECT_SIZE (PAGE_SIZE / BITS_PER_ULONG)
-
-C_ASSERT(sizeof (XENBUS_CACHE_SLAB) <= MINIMUM_OBJECT_SIZE);
-
-#define MAXNAMELEN  128
+#define MAXNAMELEN      128
 
 struct _XENBUS_CACHE {
     LIST_ENTRY              ListEntry;
@@ -88,6 +90,10 @@ struct _XENBUS_CACHE {
     ULONG                   Count;
     PXENBUS_CACHE_MAGAZINE  Magazine;
     ULONG                   MagazineCount;
+    LONG                    CurrentSlabs;
+    LONG                    MaximumSlabs;
+    LONG                    CurrentObjects;
+    LONG                    MaximumObjects;
 };
 
 struct _XENBUS_CACHE_CONTEXT {
@@ -104,7 +110,7 @@ struct _XENBUS_CACHE_CONTEXT {
 
 static FORCEINLINE PVOID
 __CacheAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, CACHE_TAG);
@@ -112,45 +118,45 @@ __CacheAllocate(
 
 static FORCEINLINE VOID
 __CacheFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, CACHE_TAG);
 }
 
 static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
+_IRQL_requires_(DISPATCH_LEVEL)
 __CacheAcquireLock(
-    IN  PXENBUS_CACHE   Cache
+    _In_ PXENBUS_CACHE  Cache
     )
 {
     Cache->AcquireLock(Cache->Argument);
 }
 
 static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
+_IRQL_requires_(DISPATCH_LEVEL)
 __CacheReleaseLock(
-    IN  PXENBUS_CACHE   Cache
+    _In_ PXENBUS_CACHE  Cache
     )
 {
     Cache->ReleaseLock(Cache->Argument);
 }
 
 static FORCEINLINE NTSTATUS
-__drv_requiresIRQL(DISPATCH_LEVEL)
+_IRQL_requires_(DISPATCH_LEVEL)
 __CacheCtor(
-    IN  PXENBUS_CACHE   Cache,
-    IN  PVOID           Object
+    _In_ PXENBUS_CACHE  Cache,
+    _In_ PVOID          Object
     )
 {
     return Cache->Ctor(Cache->Argument, Object);
 }
 
 static FORCEINLINE VOID
-__drv_requiresIRQL(DISPATCH_LEVEL)
+_IRQL_requires_(DISPATCH_LEVEL)
 __CacheDtor(
-    IN  PXENBUS_CACHE   Cache,
-    IN  PVOID           Object
+    _In_ PXENBUS_CACHE  Cache,
+    _In_ PVOID          Object
     )
 {
     Cache->Dtor(Cache->Argument, Object);
@@ -158,7 +164,7 @@ __CacheDtor(
 
 static PVOID
 CacheGetObjectFromMagazine(
-    IN  PXENBUS_CACHE_MAGAZINE  Magazine
+    _In_ PXENBUS_CACHE_MAGAZINE Magazine
     )
 {
     ULONG                       Index;
@@ -179,8 +185,8 @@ CacheGetObjectFromMagazine(
 
 static NTSTATUS
 CachePutObjectToMagazine(
-    IN  PXENBUS_CACHE_MAGAZINE  Magazine,
-    IN  PVOID                   Object
+    _In_ PXENBUS_CACHE_MAGAZINE Magazine,
+    _In_ PVOID                  Object
     )
 {
     ULONG                       Index;
@@ -195,10 +201,106 @@ CachePutObjectToMagazine(
     return STATUS_UNSUCCESSFUL;
 }
 
+static PXENBUS_CACHE_MASK
+CacheMaskCreate(
+    _In_ ULONG          Size
+    )
+{
+    ULONG               NumberOfBytes;
+    PXENBUS_CACHE_MASK  Mask;
+
+    NumberOfBytes = FIELD_OFFSET(XENBUS_CACHE_MASK, Mask) +
+        (P2ROUNDUP(ULONG, Size, BITS_PER_ULONG) / 8);
+
+    Mask = __CacheAllocate(NumberOfBytes);
+    if (Mask == NULL)
+        goto fail1;
+
+    Mask->Size = Size;
+
+    return Mask;
+
+fail1:
+    return NULL;
+}
+
+static VOID
+CacheMaskDestroy(
+    _In_ PXENBUS_CACHE_MASK Mask
+    )
+{
+    ASSERT(Mask->Count == 0);
+    __CacheFree(Mask);
+}
+
+static FORCEINLINE VOID
+__CacheMaskSet(
+    _In_ PXENBUS_CACHE_MASK Mask,
+    _In_ ULONG              Bit
+    )
+{
+    ULONG                   Index = Bit / BITS_PER_ULONG;
+    ULONG                   Value = 1u << (Bit % BITS_PER_ULONG);
+
+    ASSERT3U(Bit, <, Mask->Size);
+
+    ASSERT(!(Mask->Mask[Index] & Value));
+    Mask->Mask[Index] |= Value;
+    ASSERT(Mask->Count < Mask->Size);
+    Mask->Count++;
+}
+
+static FORCEINLINE BOOLEAN
+__CacheMaskTest(
+    _In_ PXENBUS_CACHE_MASK Mask,
+    _In_ ULONG              Bit
+    )
+{
+    ULONG                   Index = Bit / BITS_PER_ULONG;
+    ULONG                   Value = 1u << (Bit % BITS_PER_ULONG);
+
+    ASSERT3U(Bit, <, Mask->Size);
+
+    return (Mask->Mask[Index] & Value) ? TRUE : FALSE;
+}
+
+static FORCEINLINE VOID
+__CacheMaskClear(
+    _In_ PXENBUS_CACHE_MASK Mask,
+    _In_ ULONG              Bit
+    )
+{
+    ULONG                   Index = Bit / BITS_PER_ULONG;
+    ULONG                   Value = 1u << (Bit % BITS_PER_ULONG);
+
+    ASSERT3U(Bit, <, Mask->Size);
+
+    ASSERT(Mask->Count != 0);
+    --Mask->Count;
+    ASSERT(Mask->Mask[Index] & Value);
+    Mask->Mask[Index] &= ~Value;
+}
+
+static ULONG
+CacheMaskSize(
+    _In_ PXENBUS_CACHE_MASK Mask
+    )
+{
+    return Mask->Size;
+}
+
+static ULONG
+CacheMaskCount(
+    _In_ PXENBUS_CACHE_MASK Mask
+    )
+{
+    return Mask->Count;
+}
+
 static VOID
 CacheInsertSlab(
-    IN  PXENBUS_CACHE       Cache,
-    IN  PXENBUS_CACHE_SLAB  New
+    _In_ PXENBUS_CACHE      Cache,
+    _In_ PXENBUS_CACHE_SLAB New
     )
 {
 #define INSERT_BEFORE(_ListEntry, _New)             \
@@ -212,7 +314,7 @@ CacheInsertSlab(
 
     PLIST_ENTRY             ListEntry;
 
-    ASSERT(New->CurrentOccupancy < New->MaximumOccupancy);
+    ASSERT(CacheMaskCount(New->Allocated) < CacheMaskSize(New->Allocated));
 
     Cache->Cursor = NULL;
 
@@ -223,12 +325,12 @@ CacheInsertSlab(
 
         Slab = CONTAINING_RECORD(ListEntry, XENBUS_CACHE_SLAB, ListEntry);
 
-        if (Slab->CurrentOccupancy < New->CurrentOccupancy) {
+        if (CacheMaskCount(Slab->Allocated) < CacheMaskCount(New->Allocated)) {
             INSERT_BEFORE(ListEntry, &New->ListEntry);
             goto done;
         }
 
-        if (Slab->CurrentOccupancy < Slab->MaximumOccupancy &&
+        if (CacheMaskCount(Slab->Allocated) < CacheMaskSize(Slab->Allocated) &&
             Cache->Cursor == NULL)
             Cache->Cursor = ListEntry;
     }
@@ -236,8 +338,14 @@ CacheInsertSlab(
     InsertTailList(&Cache->SlabList, &New->ListEntry);
 
 done:
-    if (Cache->Cursor == NULL)
+    if (Cache->Cursor == NULL) {
+        //
+        // A newly inserted slab has either just been created, or has just had
+        // an object freed back to it. Either will it should never be full.
+        //
+        ASSERT(CacheMaskCount(New->Allocated) < CacheMaskSize(New->Allocated));
         Cache->Cursor = &New->ListEntry;
+    }
 
 #undef  INSERT_BEFORE
 }
@@ -245,14 +353,14 @@ done:
 #if DBG
 static VOID
 CacheAudit(
-    IN  PXENBUS_CACHE   Cache
+    _In_ PXENBUS_CACHE  Cache
     )
 {
-    ULONG               CurrentOccupancy = ULONG_MAX;
+    ULONG               Count = ULONG_MAX;
     PLIST_ENTRY         ListEntry;
 
     //
-    // The cursror should point at the first slab that is not fully
+    // The cursor should point at the first slab that is not fully
     // occupied.
     //
     for (ListEntry = Cache->SlabList.Flink;
@@ -262,7 +370,7 @@ CacheAudit(
 
         Slab = CONTAINING_RECORD(ListEntry, XENBUS_CACHE_SLAB, ListEntry);
 
-        if (Slab->CurrentOccupancy < Slab->MaximumOccupancy) {
+        if (CacheMaskCount(Slab->Allocated) < CacheMaskSize(Slab->Allocated)) {
             ASSERT3P(Cache->Cursor, ==, ListEntry);
             break;
         }
@@ -276,9 +384,9 @@ CacheAudit(
 
         Slab = CONTAINING_RECORD(ListEntry, XENBUS_CACHE_SLAB, ListEntry);
 
-        ASSERT3U(Slab->CurrentOccupancy, <=, CurrentOccupancy);
+        ASSERT3U(CacheMaskCount(Slab->Allocated), <=, Count);
 
-        CurrentOccupancy = Slab->CurrentOccupancy;
+        Count = CacheMaskCount(Slab->Allocated);
     }
 }
 #else
@@ -288,17 +396,17 @@ CacheAudit(
 // Must be called with lock held
 static NTSTATUS
 CacheCreateSlab(
-    IN  PXENBUS_CACHE   Cache
+    _In_ PXENBUS_CACHE  Cache
     )
 {
     PXENBUS_CACHE_SLAB  Slab;
     ULONG               NumberOfBytes;
     ULONG               Count;
-    ULONG               Size;
-    LONG                Index;
+    LONG                SlabCount;
     NTSTATUS            status;
 
-    NumberOfBytes = P2ROUNDUP(FIELD_OFFSET(XENBUS_CACHE_SLAB, Buffer) +
+    NumberOfBytes = P2ROUNDUP(ULONG,
+                              FIELD_OFFSET(XENBUS_CACHE_SLAB, Buffer) +
                               Cache->Size,
                               PAGE_SIZE);
     Count = (NumberOfBytes - FIELD_OFFSET(XENBUS_CACHE_SLAB, Buffer)) /
@@ -320,38 +428,28 @@ CacheCreateSlab(
 
     Slab->Magic = XENBUS_CACHE_SLAB_MAGIC;
     Slab->Cache = Cache;
-    Slab->MaximumOccupancy = (USHORT)Count;
 
-    Size = P2ROUNDUP(Count, BITS_PER_ULONG);
-    Size /= 8;
-
-    Slab->Mask = __CacheAllocate(Size);
-    if (Slab->Mask == NULL)
+    Slab->Constructed = CacheMaskCreate(Count);
+    if (Slab->Constructed == NULL)
         goto fail3;
 
-    for (Index = 0; Index < (LONG)Slab->MaximumOccupancy; Index++) {
-        PVOID Object = (PVOID)&Slab->Buffer[Index * Cache->Size];
-
-        status = __CacheCtor(Cache, Object);
-        if (!NT_SUCCESS(status))
-            goto fail4;
-    }
+    Slab->Allocated = CacheMaskCreate(Count);
+    if (Slab->Allocated == NULL)
+        goto fail4;
 
     CacheInsertSlab(Cache, Slab);
     Cache->Count += Count;
+
+    SlabCount = InterlockedIncrement(&Cache->CurrentSlabs);
+    if (SlabCount > Cache->MaximumSlabs)
+        Cache->MaximumSlabs = SlabCount;
 
     return STATUS_SUCCESS;
 
 fail4:
     Error("fail4\n");
 
-    while (--Index >= 0) {
-        PVOID Object = (PVOID)&Slab->Buffer[Index * Cache->Size];
-
-        __CacheDtor(Cache, Object);
-    }
-
-    __CacheFree(Slab->Mask);
+    CacheMaskDestroy(Slab->Constructed);
 
 fail3:
     Error("fail3\n");
@@ -370,135 +468,110 @@ fail1:
 // Must be called with lock held
 static VOID
 CacheDestroySlab(
-    IN  PXENBUS_CACHE       Cache,
-    IN  PXENBUS_CACHE_SLAB  Slab
+    _In_ PXENBUS_CACHE      Cache,
+    _In_ PXENBUS_CACHE_SLAB Slab
     )
 {
     LONG                    Index;
 
-    ASSERT3U(Slab->CurrentOccupancy, ==, 0);
-
-    ASSERT3U(Cache->Count, >=, Slab->MaximumOccupancy);
-    Cache->Count -= Slab->MaximumOccupancy;
+    ASSERT3U(Cache->Count, >=, CacheMaskSize(Slab->Allocated));
+    Cache->Count -= CacheMaskSize(Slab->Allocated);
 
     //
-    // The only reason the cursor should be pointing at this slab is
-    // if it is the only one in the list.
+    // The cursor slab should always be the first slab in the list that is not
+    // fully occupied. If we are destroying it then clearly it is empty, but
+    // it may be one of several empty slabs. Set the cursor to the current
+    // cursor's Flink so that it will either point at the next empty slab, or
+    // the list anchor if there are no more empty slabs.
     //
     if (Cache->Cursor == &Slab->ListEntry)
-        Cache->Cursor = &Cache->SlabList;
+        Cache->Cursor = Slab->ListEntry.Flink;
 
     RemoveEntryList(&Slab->ListEntry);
+    CacheAudit(Cache);
 
-    ASSERT(Cache->Cursor != &Cache->SlabList ||
-           IsListEmpty(&Cache->SlabList));
-
-    Index = Slab->MaximumOccupancy;
+    Index = CacheMaskSize(Slab->Constructed);
     while (--Index >= 0) {
         PVOID Object = (PVOID)&Slab->Buffer[Index * Cache->Size];
 
-        __CacheDtor(Cache, Object);
+        if (__CacheMaskTest(Slab->Constructed, Index)) {
+            __CacheDtor(Cache, Object);
+            __CacheMaskClear(Slab->Constructed, Index);
+        }
     }
 
-    __CacheFree(Slab->Mask);
+    ASSERT(Cache->CurrentSlabs != 0);
+    InterlockedDecrement(&Cache->CurrentSlabs);
+
+    CacheMaskDestroy(Slab->Allocated);
+    CacheMaskDestroy(Slab->Constructed);
     __CacheFree(Slab);
-}
-
-static FORCEINLINE ULONG
-__CacheMaskScan(
-    IN  ULONG   *Mask,
-    IN  ULONG   Maximum
-    )
-{
-    ULONG       Size;
-    ULONG       Index;
-
-    Size = P2ROUNDUP(Maximum, BITS_PER_ULONG);
-    Size /= sizeof (ULONG);
-    ASSERT(Size != 0);
-
-    for (Index = 0; Index < Size; Index++) {
-        ULONG   Free = ~Mask[Index];
-        ULONG   Bit;
-
-        if (!_BitScanForward(&Bit, Free))
-            continue;
-
-        Bit += Index * BITS_PER_ULONG;
-        if (Bit < Maximum)
-            return Bit;
-    }
-
-    return Maximum;
-}
-
-static FORCEINLINE VOID
-__CacheMaskSet(
-    IN  ULONG   *Mask,
-    IN  ULONG   Bit
-    )
-{
-    ULONG       Index = Bit / BITS_PER_ULONG;
-
-    Mask[Index] |= 1u << (Bit % BITS_PER_ULONG);
-}
-
-static FORCEINLINE BOOLEAN
-__CacheMaskTest(
-    IN  ULONG   *Mask,
-    IN  ULONG   Bit
-    )
-{
-    ULONG       Index = Bit / BITS_PER_ULONG;
-
-    return (Mask[Index] & (1u << (Bit % BITS_PER_ULONG))) ? TRUE : FALSE;
-}
-
-static FORCEINLINE VOID
-__CacheMaskClear(
-    IN  ULONG   *Mask,
-    IN  ULONG   Bit
-    )
-{
-    ULONG       Index = Bit / BITS_PER_ULONG;
-
-    Mask[Index] &= ~(1u << (Bit % BITS_PER_ULONG));
 }
 
 // Must be called with lock held
 static PVOID
 CacheGetObjectFromSlab(
-    IN  PXENBUS_CACHE_SLAB  Slab
+    _In_ PXENBUS_CACHE_SLAB Slab
     )
 {
     PXENBUS_CACHE           Cache;
     ULONG                   Index;
     PVOID                   Object;
+    NTSTATUS                status;
 
     Cache = Slab->Cache;
 
-    ASSERT3U(Slab->CurrentOccupancy, <=, Slab->MaximumOccupancy);
-    if (Slab->CurrentOccupancy == Slab->MaximumOccupancy)
-        return NULL;
+    ASSERT(CacheMaskCount(Slab->Allocated) <= CacheMaskSize(Slab->Allocated));
 
-    Index = __CacheMaskScan(Slab->Mask, Slab->MaximumOccupancy);
-    BUG_ON(Index >= Slab->MaximumOccupancy);
+    status = STATUS_NO_MEMORY;
+    if (CacheMaskCount(Slab->Allocated) == CacheMaskSize(Slab->Allocated))
+	    goto fail1;
 
-    __CacheMaskSet(Slab->Mask, Index);
-    Slab->CurrentOccupancy++;
+    //
+    // If there are unallocated but constructed objects then look for one of those,
+    // otherwise look for a free unconstructed object. (NOTE: The 'Constructed' mask
+    // should always be contiguous).
+    //
+    Index = (CacheMaskCount(Slab->Allocated) < CacheMaskCount(Slab->Constructed)) ?
+        0 : CacheMaskCount(Slab->Constructed);
+
+    while (Index < CacheMaskSize(Slab->Allocated)) {
+        if (!__CacheMaskTest(Slab->Allocated, Index))
+            break;
+
+        Index++;
+    }
 
     Object = (PVOID)&Slab->Buffer[Index * Cache->Size];
     ASSERT3U(Index, ==, (ULONG)((PUCHAR)Object - &Slab->Buffer[0]) /
              Cache->Size);
 
+    if (!__CacheMaskTest(Slab->Constructed, Index)) {
+        status = __CacheCtor(Cache, Object);
+        if (!NT_SUCCESS(status))
+            goto fail2;
+
+        __CacheMaskSet(Slab->Constructed, Index);
+    }
+
+    __CacheMaskSet(Slab->Allocated, Index);
+
     return Object;
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return NULL;
 }
 
 // Must be called with lock held
 static VOID
 CachePutObjectToSlab(
-    IN  PXENBUS_CACHE_SLAB  Slab,
-    IN  PVOID               Object
+    _In_ PXENBUS_CACHE_SLAB Slab,
+    _In_ PVOID              Object
     )
 {
     PXENBUS_CACHE           Cache;
@@ -507,28 +580,27 @@ CachePutObjectToSlab(
     Cache = Slab->Cache;
 
     Index = (ULONG)((PUCHAR)Object - &Slab->Buffer[0]) / Cache->Size;
-    BUG_ON(Index >= Slab->MaximumOccupancy);
+    BUG_ON(Index >= CacheMaskSize(Slab->Allocated));
 
-    ASSERT(Slab->CurrentOccupancy != 0);
-    --Slab->CurrentOccupancy;
-
-    ASSERT(__CacheMaskTest(Slab->Mask, Index));
-    __CacheMaskClear(Slab->Mask, Index);
+    __CacheMaskClear(Slab->Allocated, Index);
 }
 
 static PVOID
 CacheGet(
-    IN  PINTERFACE          Interface,
-    IN  PXENBUS_CACHE       Cache,
-    IN  BOOLEAN             Locked
+    _In_ PINTERFACE         Interface,
+    _In_ PXENBUS_CACHE      Cache,
+    _In_ BOOLEAN            Locked
     )
 {
     KIRQL                   Irql;
     ULONG                   Index;
     PXENBUS_CACHE_MAGAZINE  Magazine;
     PVOID                   Object;
+    LONG                    ObjectCount;
 
     UNREFERENCED_PARAMETER(Interface);
+
+    ASSERT(Cache != NULL);
 
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
     Index = KeGetCurrentProcessorNumberEx(NULL);
@@ -545,7 +617,7 @@ CacheGet(
 
 again:
     if (Cache->Cursor != &Cache->SlabList) {
-        PLIST_ENTRY ListEntry = Cache->Cursor;
+        PLIST_ENTRY         ListEntry = Cache->Cursor;
         PXENBUS_CACHE_SLAB  Slab;
 
         Slab = CONTAINING_RECORD(ListEntry, XENBUS_CACHE_SLAB, ListEntry);
@@ -553,11 +625,15 @@ again:
         Object = CacheGetObjectFromSlab(Slab);
         ASSERT(Object != NULL);
 
-        if (Slab->CurrentOccupancy == Slab->MaximumOccupancy)
+        //
+        // If the slab is now fully occupied, ove the cursor on to the next
+        // slab. If there are no more slabed then Flink will be pointing at
+        // Cache->SlabList so we will create a new slab next time round, if
+        // necessary.
+        //
+        if (CacheMaskCount(Slab->Allocated) == CacheMaskSize(Slab->Allocated))
             Cache->Cursor = Slab->ListEntry.Flink;
-    }
-
-    if (Object == NULL) {
+    } else {
         NTSTATUS status;
 
         ASSERT3P(Cache->Cursor, ==, &Cache->SlabList);
@@ -575,6 +651,12 @@ again:
         __CacheReleaseLock(Cache);
 
 done:
+    if (Object != NULL) {
+        ObjectCount = InterlockedIncrement(&Cache->CurrentObjects);
+        if (ObjectCount > Cache->MaximumObjects)
+            Cache->MaximumObjects = ObjectCount;
+    }
+
     KeLowerIrql(Irql);
 
     return Object;
@@ -582,10 +664,10 @@ done:
 
 static VOID
 CachePut(
-    IN  PINTERFACE          Interface,
-    IN  PXENBUS_CACHE       Cache,
-    IN  PVOID               Object,
-    IN  BOOLEAN             Locked
+    _In_ PINTERFACE         Interface,
+    _In_ PXENBUS_CACHE      Cache,
+    _In_ PVOID              Object,
+    _In_ BOOLEAN            Locked
     )
 {
     KIRQL                   Irql;
@@ -595,6 +677,9 @@ CachePut(
     NTSTATUS                status;
 
     UNREFERENCED_PARAMETER(Interface);
+
+    ASSERT(Cache != NULL);
+    ASSERT(Object != NULL);
 
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
     Index = KeGetCurrentProcessorNumberEx(NULL);
@@ -615,7 +700,11 @@ CachePut(
 
     CachePutObjectToSlab(Slab, Object);
 
-    /* Re-insert to keep slab list ordered */
+    //
+    // To maintain the order, and the invariant that the cursor always points,
+    // to the first slab with available space we must remove this slab from the
+    // list and re-insert it at it's (now) correct location.
+    //
     RemoveEntryList(&Slab->ListEntry);
     CacheInsertSlab(Cache, Slab);
 
@@ -625,13 +714,16 @@ CachePut(
         __CacheReleaseLock(Cache);
 
 done:
+    ASSERT(Cache->CurrentObjects != 0);
+    InterlockedDecrement(&Cache->CurrentObjects);
+
     KeLowerIrql(Irql);
 }
 
 static NTSTATUS
 CacheFill(
-    IN  PXENBUS_CACHE   Cache,
-    IN  ULONG           Count
+    _In_ PXENBUS_CACHE  Cache,
+    _In_ ULONG          Count
     )
 {
     KIRQL               Irql;
@@ -657,8 +749,8 @@ CacheFill(
 
 static VOID
 CacheSpill(
-    IN  PXENBUS_CACHE   Cache,
-    IN  ULONG           Count
+    _In_ PXENBUS_CACHE  Cache,
+    _In_ ULONG          Count
     )
 {
     KIRQL               Irql;
@@ -670,25 +762,27 @@ CacheSpill(
     if (Cache->Count <= Count)
         goto done;
 
-    ListEntry = Cache->SlabList.Blink;
-    while (ListEntry != &Cache->SlabList) {
-        PLIST_ENTRY         Prev = ListEntry->Blink;
+    while (!IsListEmpty(&Cache->SlabList)) {
         PXENBUS_CACHE_SLAB  Slab;
 
-        ASSERT(!IsListEmpty(&Cache->SlabList));
+        ListEntry = Cache->SlabList.Blink;
+        ASSERT(ListEntry != &Cache->SlabList);
 
         Slab = CONTAINING_RECORD(ListEntry, XENBUS_CACHE_SLAB, ListEntry);
 
-        if (Slab->CurrentOccupancy != 0)
+        //
+        // Slabs are kept in order of maximum to minimum occupancy so we know
+        // that if the last slab in the list is not empty, then none of the
+        // slabs before it will be empty.
+        //
+        if (CacheMaskCount(Slab->Allocated) != 0)
             break;
 
-        ASSERT(Cache->Count >= Slab->MaximumOccupancy);
-        if (Cache->Count - Slab->MaximumOccupancy < Count)
+        ASSERT(Cache->Count >= CacheMaskSize(Slab->Allocated));
+        if (Cache->Count - CacheMaskSize(Slab->Allocated) < Count)
             break;
 
         CacheDestroySlab(Cache, Slab);
-
-        ListEntry = Prev;
     }
 
     CacheAudit(Cache);
@@ -700,7 +794,7 @@ done:
 
 static FORCEINLINE VOID
 __CacheFlushMagazines(
-    IN  PXENBUS_CACHE   Cache
+    _In_ PXENBUS_CACHE  Cache
     )
 {
     KIRQL               Irql;
@@ -729,22 +823,30 @@ __CacheFlushMagazines(
 
 static NTSTATUS
 CacheCreate(
-    IN  PINTERFACE          Interface,
-    IN  const CHAR          *Name,
-    IN  ULONG               Size,
-    IN  ULONG               Reservation,
-    IN  ULONG               Cap,
-    IN  NTSTATUS            (*Ctor)(PVOID, PVOID),
-    IN  VOID                (*Dtor)(PVOID, PVOID),
-    IN  VOID                (*AcquireLock)(PVOID),
-    IN  VOID                (*ReleaseLock)(PVOID),
-    IN  PVOID               Argument,
-    OUT PXENBUS_CACHE       *Cache
+    _In_ PINTERFACE         Interface,
+    _In_ PCSTR              Name,
+    _In_ ULONG              Size,
+    _In_ ULONG              Reservation,
+    _In_ ULONG              Cap,
+    _In_ NTSTATUS           (*Ctor)(PVOID, PVOID),
+    _In_ VOID               (*Dtor)(PVOID, PVOID),
+    _In_ VOID               (*AcquireLock)(PVOID),
+    _In_ VOID               (*ReleaseLock)(PVOID),
+    _In_ PVOID              Argument,
+    _Outptr_ PXENBUS_CACHE  *Cache
     )
 {
     PXENBUS_CACHE_CONTEXT   Context = Interface->Context;
     KIRQL                   Irql;
     NTSTATUS                status;
+
+    ASSERT(Name != NULL);
+    ASSERT(Size != 0);
+    ASSERT(Ctor != NULL);
+    ASSERT(Dtor != NULL);
+    ASSERT(AcquireLock != NULL);
+    ASSERT(ReleaseLock != NULL);
+    ASSERT(Cache != NULL);
 
     Trace("====> (%s)\n", Name);
 
@@ -761,8 +863,7 @@ CacheCreate(
     if (!NT_SUCCESS(status))
         goto fail2;
 
-    Size = __max(Size, MINIMUM_OBJECT_SIZE);
-    Size = P2ROUNDUP(Size, sizeof (ULONG_PTR));
+    Size = P2ROUNDUP(ULONG, Size, sizeof (ULONG_PTR));
 
     if (Cap == 0)
         Cap = ULONG_MAX;
@@ -832,28 +933,28 @@ fail2:
     Error("fail2\n");
 
     RtlZeroMemory((*Cache)->Name, sizeof ((*Cache)->Name));
-    
+
     ASSERT(IsZeroMemory(*Cache, sizeof (XENBUS_CACHE)));
     __CacheFree(*Cache);
 
 fail1:
     Error("fail1 (%08x)\n", status);
 
-    return status;    
+    return status;
 }
 
 static NTSTATUS
 CacheCreateVersion1(
-    IN  PINTERFACE          Interface,
-    IN  const CHAR          *Name,
-    IN  ULONG               Size,
-    IN  ULONG               Reservation,
-    IN  NTSTATUS            (*Ctor)(PVOID, PVOID),
-    IN  VOID                (*Dtor)(PVOID, PVOID),
-    IN  VOID                (*AcquireLock)(PVOID),
-    IN  VOID                (*ReleaseLock)(PVOID),
-    IN  PVOID               Argument,
-    OUT PXENBUS_CACHE       *Cache
+    _In_ PINTERFACE         Interface,
+    _In_ PCSTR              Name,
+    _In_ ULONG              Size,
+    _In_ ULONG              Reservation,
+    _In_ NTSTATUS           (*Ctor)(PVOID, PVOID),
+    _In_ VOID               (*Dtor)(PVOID, PVOID),
+    _In_ VOID               (*AcquireLock)(PVOID),
+    _In_ VOID               (*ReleaseLock)(PVOID),
+    _In_ PVOID              Argument,
+    _Outptr_ PXENBUS_CACHE  *Cache
     )
 {
     return CacheCreate(Interface,
@@ -871,12 +972,14 @@ CacheCreateVersion1(
 
 static VOID
 CacheDestroy(
-    IN  PINTERFACE          Interface,
-    IN  PXENBUS_CACHE       Cache
+    _In_ PINTERFACE         Interface,
+    _In_ PXENBUS_CACHE      Cache
     )
 {
     PXENBUS_CACHE_CONTEXT   Context = Interface->Context;
     KIRQL                   Irql;
+
+    ASSERT(Cache != NULL);
 
     Trace("====> (%s)\n", Cache->Name);
 
@@ -894,6 +997,12 @@ CacheDestroy(
     Cache->MagazineCount = 0;
 
     CacheSpill(Cache, 0);
+
+    ASSERT(Cache->CurrentObjects == 0);
+    Cache->MaximumObjects = 0;
+
+    ASSERT(Cache->CurrentSlabs == 0);
+    Cache->MaximumSlabs = 0;
 
     Cache->Cursor = NULL;
     ASSERT(IsListEmpty(&Cache->SlabList));
@@ -918,8 +1027,8 @@ CacheDestroy(
 
 static VOID
 CacheDebugCallback(
-    IN  PVOID               Argument,
-    IN  BOOLEAN             Crashing
+    _In_ PVOID              Argument,
+    _In_ BOOLEAN            Crashing
     )
 {
     PXENBUS_CACHE_CONTEXT   Context = Argument;
@@ -942,10 +1051,14 @@ CacheDebugCallback(
 
             XENBUS_DEBUG(Printf,
                          &Context->DebugInterface,
-                         "- %s: Count = %d (Reservation = %d)\n",
+                         "- %s: Count = %d, Reservation = %d, Objects = %d / %d, Slabs = %d / %d\n",
                          Cache->Name,
                          Cache->Count,
-                         Cache->Reservation);
+                         Cache->Reservation,
+                         Cache->CurrentObjects,
+                         Cache->MaximumObjects,
+                         Cache->CurrentSlabs,
+                         Cache->MaximumSlabs);
         }
     }
 }
@@ -959,8 +1072,8 @@ CacheDebugCallback(
 
 static NTSTATUS
 CacheMonitor(
-    IN  PXENBUS_THREAD      Self,
-    IN  PVOID               _Context
+    _In_ PXENBUS_THREAD     Self,
+    _In_ PVOID              _Context
     )
 {
     PXENBUS_CACHE_CONTEXT   Context = _Context;
@@ -1068,7 +1181,7 @@ fail1:
 
 VOID
 CacheRelease(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENBUS_CACHE_CONTEXT   Context = Interface->Context;
@@ -1116,14 +1229,14 @@ static struct _XENBUS_CACHE_INTERFACE_V2 CacheInterfaceVersion2 = {
     CachePut,
     CacheDestroy
 };
-                     
+
 NTSTATUS
 CacheInitialize(
-    IN  PXENBUS_FDO             Fdo,
-    OUT PXENBUS_CACHE_CONTEXT   *Context
+    _In_ PXENBUS_FDO                Fdo,
+    _Outptr_ PXENBUS_CACHE_CONTEXT  *Context
     )
 {
-    NTSTATUS                    status;
+    NTSTATUS                        status;
 
     Trace("====>\n");
 
@@ -1162,6 +1275,9 @@ fail2:
     RtlZeroMemory(&(*Context)->DebugInterface,
                   sizeof (XENBUS_DEBUG_INTERFACE));
 
+    __CacheFree(*Context);
+    *Context = NULL;
+
 fail1:
     Error("fail1 (%08x)\n", status);
 
@@ -1170,10 +1286,10 @@ fail1:
 
 NTSTATUS
 CacheGetInterface(
-    IN      PXENBUS_CACHE_CONTEXT   Context,
-    IN      ULONG                   Version,
-    IN OUT  PINTERFACE              Interface,
-    IN      ULONG                   Size
+    _In_ PXENBUS_CACHE_CONTEXT      Context,
+    _In_ ULONG                      Version,
+    _Inout_ PINTERFACE              Interface,
+    _In_ ULONG                      Size
     )
 {
     NTSTATUS                        status;
@@ -1221,11 +1337,11 @@ CacheGetInterface(
     }
 
     return status;
-}   
+}
 
 ULONG
 CacheGetReferences(
-    IN  PXENBUS_CACHE_CONTEXT   Context
+    _In_ PXENBUS_CACHE_CONTEXT  Context
     )
 {
     return Context->References;
@@ -1233,7 +1349,7 @@ CacheGetReferences(
 
 VOID
 CacheTeardown(
-    IN  PXENBUS_CACHE_CONTEXT   Context
+    _In_ PXENBUS_CACHE_CONTEXT  Context
     )
 {
     Trace("====>\n");

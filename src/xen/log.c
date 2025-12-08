@@ -1,31 +1,32 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -51,7 +52,7 @@ typedef struct _LOG_SLOT {
 
 struct _LOG_DISPOSITION {
     LOG_LEVEL   Mask;
-    VOID        (*Function)(PVOID, PCHAR, ULONG);
+    VOID        (*Function)(PVOID, PSTR, ULONG);
     PVOID       Argument;
 };
 
@@ -72,8 +73,8 @@ static LOG_CONTEXT  LogContext;
 
 static FORCEINLINE VOID
 __LogFlushSlot(
-    IN  PLOG_CONTEXT    Context,
-    IN  PLOG_SLOT       Slot
+    _In_ PLOG_CONTEXT   Context,
+    _In_ PLOG_SLOT      Slot
     )
 {
     ULONG               Index;
@@ -93,7 +94,7 @@ __LogFlushSlot(
 
 static VOID
 LogFlush(
-    IN  PLOG_CONTEXT    Context
+    _In_ PLOG_CONTEXT   Context
     )
 {
     ULONG               Index;
@@ -110,8 +111,8 @@ LogFlush(
 
 static FORCEINLINE VOID
 __LogPut(
-    IN  PLOG_SLOT   Slot,
-    IN  CHAR        Character
+    _In_ PLOG_SLOT  Slot,
+    _In_ CHAR       Character
     )
 {
     if (Slot->Offset >= LOG_BUFFER_SIZE)
@@ -120,12 +121,12 @@ __LogPut(
     Slot->Buffer[Slot->Offset++] = Character;
 }
 
-static PCHAR
+static PSTR
 LogFormatNumber(
-    IN  PCHAR       Buffer,
-    IN  ULONGLONG   Value,
-    IN  UCHAR       Base,
-    IN  BOOLEAN     UpperCase
+    _In_ PSTR       Buffer,
+    _In_ ULONGLONG  Value,
+    _In_ UCHAR      Base,
+    _In_ BOOLEAN    UpperCase
     )
 {
     ULONGLONG       Next = Value / Base;
@@ -182,10 +183,10 @@ LogFormatNumber(
 
 static VOID
 LogWriteSlot(
-    IN  PLOG_SLOT   Slot,
-    IN  LONG        Count,
-    IN  const CHAR  *Format,
-    IN  va_list     Arguments
+    _In_ PLOG_SLOT  Slot,
+    _In_ LONG       Count,
+    _In_ PCSTR      Format,
+    _In_ va_list    Arguments
     )
 {
     CHAR            Character;
@@ -196,7 +197,7 @@ LogWriteSlot(
         BOOLEAN Wide = FALSE;
         BOOLEAN ZeroPrefix = FALSE;
         BOOLEAN OppositeJustification = FALSE;
-        
+
         if (Character != '%') {
             __LogPut(Slot, Character);
             goto loop;
@@ -248,7 +249,7 @@ LogWriteSlot(
                 Value = va_arg(Arguments, WCHAR);
 
                 __LogPut(Slot, (CHAR)Value);
-            } else { 
+            } else {
                 CHAR    Value;
 
                 Value = va_arg(Arguments, CHAR);
@@ -297,7 +298,7 @@ LogWriteSlot(
         }
         case 's': {
             if (Wide) {
-                PWCHAR  Value = va_arg(Arguments, PWCHAR);
+                PWSTR   Value = va_arg(Arguments, PWSTR);
                 ULONG   Length;
                 ULONG   Index;
 
@@ -323,7 +324,7 @@ LogWriteSlot(
                     }
                 }
             } else {
-                PCHAR   Value = va_arg(Arguments, PCHAR);
+                PSTR    Value = va_arg(Arguments, PSTR);
                 ULONG   Length;
                 ULONG   Index;
 
@@ -355,7 +356,7 @@ LogWriteSlot(
         case 'Z': {
             if (Wide) {
                 PUNICODE_STRING Value = va_arg(Arguments, PUNICODE_STRING);
-                PWCHAR          Buffer;
+                PWSTR           Buffer;
                 ULONG           Length;
                 ULONG           Index;
 
@@ -385,7 +386,7 @@ LogWriteSlot(
                 }
             } else {
                 PANSI_STRING Value = va_arg(Arguments, PANSI_STRING);
-                PCHAR        Buffer;
+                PSTR         Buffer;
                 ULONG        Length;
                 ULONG        Index;
 
@@ -431,10 +432,10 @@ loop:
 XEN_API
 VOID
 LogCchVPrintf(
-    IN  LOG_LEVEL   Level,
-    IN  ULONG       Count,
-    IN  const CHAR  *Format,
-    IN  va_list     Arguments
+    _In_ LOG_LEVEL  Level,
+    _In_ ULONG      Count,
+    _In_ PCSTR      Format,
+    _In_ va_list    Arguments
     )
 {
     PLOG_CONTEXT    Context = &LogContext;
@@ -462,9 +463,9 @@ LogCchVPrintf(
 XEN_API
 VOID
 LogVPrintf(
-    IN  LOG_LEVEL   Level,
-    IN  const CHAR  *Format,
-    IN  va_list     Arguments
+    _In_ LOG_LEVEL  Level,
+    _In_ PCSTR      Format,
+    _In_ va_list    Arguments
     )
 {
     LogCchVPrintf(Level, LOG_BUFFER_SIZE, Format, Arguments);
@@ -473,9 +474,9 @@ LogVPrintf(
 XEN_API
 VOID
 LogCchPrintf(
-    IN  LOG_LEVEL   Level,
-    IN  ULONG       Count,
-    IN  const CHAR  *Format,
+    _In_ LOG_LEVEL  Level,
+    _In_ ULONG      Count,
+    _In_ PCSTR      Format,
     ...
     )
 {
@@ -489,8 +490,8 @@ LogCchPrintf(
 XEN_API
 VOID
 LogPrintf(
-    IN  LOG_LEVEL   Level,
-    IN  const CHAR  *Format,
+    _In_ LOG_LEVEL  Level,
+    _In_ PCSTR      Format,
     ...
     )
 {
@@ -516,10 +517,10 @@ _IRQL_requires_(DISPATCH_LEVEL)
 _IRQL_requires_same_
 VOID
 LogDpc(
-    IN  PKDPC       Dpc,
-    IN  PVOID       _Context,
-    IN  PVOID       Argument1,
-    IN  PVOID       Argument2
+    _In_ PKDPC      Dpc,
+    _In_ PVOID      _Context,
+    _In_ PVOID      Argument1,
+    _In_ PVOID      Argument2
     )
 {
     PLOG_CONTEXT    Context = &LogContext;
@@ -537,9 +538,9 @@ LogDpc(
 
 static VOID
 LogDebugPrint(
-    IN  PANSI_STRING    Ansi,
-    IN  ULONG           ComponentId,
-    IN  ULONG           Level
+    _In_ PANSI_STRING   Ansi,
+    _In_ ULONG          ComponentId,
+    _In_ ULONG          Level
     )
 {
     PLOG_CONTEXT        Context = &LogContext;
@@ -587,7 +588,7 @@ LogTeardown(
     PLOG_CONTEXT    Context = &LogContext;
 
     if (Context->Enabled) {
-        (VOID) DbgSetDebugPrintCallback(LogDebugPrint, FALSE); 
+        (VOID) DbgSetDebugPrintCallback(LogDebugPrint, FALSE);
         Context->Enabled = FALSE;
     }
 
@@ -601,16 +602,16 @@ LogTeardown(
 
 NTSTATUS
 LogAddDisposition(
-    IN  LOG_LEVEL           Mask,
-    IN  VOID                (*Function)(PVOID, PCHAR, ULONG),
-    IN  PVOID               Argument OPTIONAL,
-    OUT PLOG_DISPOSITION    *Disposition
+    _In_ LOG_LEVEL                              Mask,
+    _In_ VOID                                   (*Function)(PVOID, PSTR, ULONG),
+    _In_opt_ PVOID                              Argument,
+    _Outptr_result_maybenull_ PLOG_DISPOSITION  *Disposition
     )
 {
-    PLOG_CONTEXT            Context = &LogContext;
-    KIRQL                   Irql;
-    ULONG                   Index;
-    NTSTATUS                status;
+    PLOG_CONTEXT                                Context = &LogContext;
+    KIRQL                                       Irql;
+    ULONG                                       Index;
+    NTSTATUS                                    status;
 
     *Disposition = NULL;
     if (Mask == LOG_LEVEL_NONE)
@@ -652,12 +653,12 @@ fail1:
 
 extern VOID
 LogRemoveDisposition(
-    IN  PLOG_DISPOSITION    Disposition
+    _In_opt_ PLOG_DISPOSITION   Disposition
     )
 {
-    PLOG_CONTEXT            Context = &LogContext;
-    KIRQL                   Irql;
-    ULONG                   Index;
+    PLOG_CONTEXT                Context = &LogContext;
+    KIRQL                       Irql;
+    ULONG                       Index;
 
     if (Disposition == NULL)
         return;
@@ -681,7 +682,7 @@ __LogDbgPrintCallbackEnable(
 {
     CHAR            Key[] = "XEN:DBG_PRINT=";
     PANSI_STRING    Option;
-    PCHAR           Value;
+    PSTR            Value;
     BOOLEAN         Enable;
     NTSTATUS        status;
 
@@ -720,7 +721,7 @@ LogResume(
 }
 
 typedef struct _XEN_LOG_LEVEL_NAME {
-    const CHAR      *Name;
+    PCSTR           Name;
     LOG_LEVEL       LogLevel;
 } XEN_LOG_LEVEL_NAME, *PXEN_LOG_LEVEL_NAME;
 
@@ -735,22 +736,28 @@ static const XEN_LOG_LEVEL_NAME XenLogLevelNames[] = {
 XEN_API
 NTSTATUS
 LogReadLogLevel(
-    IN  HANDLE      Key,
-    IN  PCHAR       Name,
-    OUT PLOG_LEVEL  LogLevel
+    _In_ HANDLE         Key,
+    _In_ PSTR           Name,
+    _Out_ PLOG_LEVEL    LogLevel
     )
 {
-    PANSI_STRING    Values;
-    ULONG           Type;
-    ULONG           Index;
-    NTSTATUS        status;
+    PANSI_STRING        Values;
+    ULONG               Type;
+    ULONG               Index;
+    BOOLEAN             SquashError;
+    NTSTATUS            status;
+
+    SquashError = FALSE;
 
     status = RegistryQuerySzValue(Key,
                                   Name,
                                   &Type,
                                   &Values);
-    if (!NT_SUCCESS(status))
+    if (!NT_SUCCESS(status)) {
+        if (status == STATUS_OBJECT_NAME_NOT_FOUND)
+            SquashError = TRUE;
         goto fail1;
+    }
 
     status = STATUS_INVALID_PARAMETER;
     if (Type != REG_MULTI_SZ)
@@ -779,7 +786,8 @@ fail2:
     RegistryFreeSzValue(Values);
 
 fail1:
-    Error("fail1 (%08x)\n", status);
+    if (!SquashError)
+        Error("fail1 (%08x)\n", status);
 
     *LogLevel = LOG_LEVEL_NONE;
 

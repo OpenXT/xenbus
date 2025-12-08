@@ -1,31 +1,32 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -44,8 +45,10 @@
 #define MAXNAMELEN  128
 
 typedef struct _XENFILT_EMULATED_DEVICE_DATA {
-    CHAR    DeviceID[MAXNAMELEN];
-    CHAR    InstanceID[MAXNAMELEN];
+    CHAR                                DeviceID[MAXNAMELEN];
+    CHAR                                InstanceID[MAXNAMELEN];
+    XENBUS_EMULATED_ACTIVATION_STATUS   ForceActivate;
+    BOOLEAN                             IsEmulatedNvme;
 } XENFILT_EMULATED_DEVICE_DATA, *PXENFILT_EMULATED_DEVICE_DATA;
 
 typedef struct _XENFILT_EMULATED_DISK_DATA {
@@ -73,7 +76,7 @@ struct _XENFILT_EMULATED_CONTEXT {
 
 static FORCEINLINE PVOID
 __EmulatedAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, XENFILT_EMULATED_TAG);
@@ -81,7 +84,7 @@ __EmulatedAllocate(
 
 static FORCEINLINE VOID
 __EmulatedFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, XENFILT_EMULATED_TAG);
@@ -89,12 +92,14 @@ __EmulatedFree(
 
 static NTSTATUS
 EmulatedSetObjectDeviceData(
-    IN  PXENFILT_EMULATED_OBJECT        EmulatedObject,
-    IN  XENFILT_EMULATED_OBJECT_TYPE    Type,
-    IN  PCHAR                           DeviceID,
-    IN  PCHAR                           InstanceID
+    _In_ PXENFILT_EMULATED_OBJECT       EmulatedObject,
+    _In_ XENFILT_EMULATED_OBJECT_TYPE   Type,
+    _In_ PSTR                           DeviceID,
+    _In_ PSTR                           InstanceID,
+    _In_opt_ PSTR                       CompatibleIDs
     )
 {
+    ULONG                               Index;
     NTSTATUS                            status;
 
     status = STATUS_INVALID_PARAMETER;
@@ -113,6 +118,29 @@ EmulatedSetObjectDeviceData(
                                 InstanceID);
     ASSERT(NT_SUCCESS(status));
 
+    if (CompatibleIDs == NULL)
+        goto done;
+
+    Index = 0;
+    for (;;) {
+        ULONG   Length;
+
+        Length = (ULONG)strlen(&CompatibleIDs[Index]);
+        if (Length == 0)
+            break;
+
+        // 8086:5845 and 1B36:0010 are the IDs of the QEMU NVMe controller when
+        // "use-intel-id" is on and off respectively.
+        if (_stricmp(&CompatibleIDs[Index], "PCI\\VEN_8086&DEV_5845") == 0 ||
+            _stricmp(&CompatibleIDs[Index], "PCI\\VEN_1B36&DEV_0010") == 0) {
+            EmulatedObject->Data.Device.IsEmulatedNvme = TRUE;
+            break;
+        }
+
+        Index += Length + 1;
+    }
+
+done:
     return STATUS_SUCCESS;
 
 fail1:
@@ -123,48 +151,50 @@ fail1:
 
 static NTSTATUS
 EmulatedSetObjectDiskData(
-    IN  PXENFILT_EMULATED_OBJECT        EmulatedObject,
-    IN  XENFILT_EMULATED_OBJECT_TYPE    Type,
-    IN  PCHAR                           DeviceID,
-    IN  PCHAR                           InstanceID
+    _In_ PXENFILT_EMULATED_OBJECT       EmulatedObject,
+    _In_ XENFILT_EMULATED_OBJECT_TYPE   Type,
+    _In_ PSTR                           DeviceID,
+    _In_ PSTR                           InstanceID,
+    _In_opt_ PSTR                       CompatibleIDs
     )
 {
-    PCHAR                               End;
+    PSTR                                End;
     ULONG                               Controller;
     ULONG                               Target;
     ULONG                               Lun;
     NTSTATUS                            status;
 
     UNREFERENCED_PARAMETER(DeviceID);
+    UNREFERENCED_PARAMETER(CompatibleIDs);
 
     status = STATUS_INVALID_PARAMETER;
     if (Type != XENFILT_EMULATED_OBJECT_TYPE_IDE)
         goto fail1;
 
-    Controller = strtol(InstanceID, &End, 10);
+    Controller = strtoul(InstanceID, &End, 10);
 
     status = STATUS_INVALID_PARAMETER;
-    if (*End != '.' || Controller > 1)
+    if (Controller > 1 || *End != '.')
         goto fail2;
 
     End++;
 
-    Target = strtol(End, &End, 10);
+    Target = strtoul(End, &End, 10);
 
     status = STATUS_INVALID_PARAMETER;
-    if (*End != '.' || Target > 1)
+    if (Target > 1 || *End != '.')
         goto fail3;
 
     End++;
 
-    Lun = strtol(End, &End, 10);
-
-    status = STATUS_INVALID_PARAMETER;
-    if (*End != '\0')
-        goto fail4;
+    Lun = strtoul(End, &End, 10);
 
     status = STATUS_NOT_SUPPORTED;
     if (Lun != 0)
+        goto fail4;
+
+    status = STATUS_INVALID_PARAMETER;
+    if (*End != '\0')
         goto fail5;
 
     EmulatedObject->Data.Disk.Index = Controller << 1 | Target;
@@ -191,15 +221,17 @@ fail1:
 
 NTSTATUS
 EmulatedAddObject(
-    IN  PXENFILT_EMULATED_CONTEXT       Context,
-    IN  PCHAR                           DeviceID,
-    IN  PCHAR                           InstanceID,
-    IN  XENFILT_EMULATED_OBJECT_TYPE    Type,
-    OUT PXENFILT_EMULATED_OBJECT        *EmulatedObject
+    _In_ PXENFILT_EMULATED_CONTEXT          Context,
+    _In_ PSTR                               DeviceID,
+    _In_ PSTR                               InstanceID,
+    _In_opt_ PSTR                           CompatibleIDs,
+    _In_ XENFILT_EMULATED_OBJECT_TYPE       Type,
+    _In_ XENBUS_EMULATED_ACTIVATION_STATUS  ForceActivate,
+    _Outptr_ PXENFILT_EMULATED_OBJECT       *EmulatedObject
     )
 {
-    KIRQL                               Irql;
-    NTSTATUS                            status;
+    KIRQL                                   Irql;
+    NTSTATUS                                status;
 
     Trace("====>\n");
 
@@ -214,14 +246,16 @@ EmulatedAddObject(
         status = EmulatedSetObjectDeviceData(*EmulatedObject,
                                              Type,
                                              DeviceID,
-                                             InstanceID);
+                                             InstanceID,
+                                             CompatibleIDs);
         break;
 
     case XENFILT_EMULATED_OBJECT_TYPE_IDE:
         status = EmulatedSetObjectDiskData(*EmulatedObject,
                                            Type,
                                            DeviceID,
-                                           InstanceID);
+                                           InstanceID,
+                                           CompatibleIDs);
         break;
 
     default:
@@ -233,6 +267,8 @@ EmulatedAddObject(
         goto fail2;
 
     (*EmulatedObject)->Type = Type;
+    if (Type == XENFILT_EMULATED_OBJECT_TYPE_PCI)
+        (*EmulatedObject)->Data.Device.ForceActivate = ForceActivate;
 
     KeAcquireSpinLock(&Context->Lock, &Irql);
     InsertTailList(&Context->List, &(*EmulatedObject)->ListEntry);
@@ -255,8 +291,8 @@ fail1:
 
 VOID
 EmulatedRemoveObject(
-    IN  PXENFILT_EMULATED_CONTEXT   Context,
-    IN  PXENFILT_EMULATED_OBJECT    EmulatedObject
+    _In_ PXENFILT_EMULATED_CONTEXT  Context,
+    _In_ PXENFILT_EMULATED_OBJECT   EmulatedObject
     )
 {
     KIRQL                           Irql;
@@ -268,36 +304,66 @@ EmulatedRemoveObject(
     __EmulatedFree(EmulatedObject);
 }
 
-static BOOLEAN
-EmulatedIsDevicePresent(
-    IN  PINTERFACE              Interface,
-    IN  PCHAR                   DeviceID,
-    IN  PCHAR                   InstanceID OPTIONAL
+static inline BOOLEAN
+EmulatedDeviceMatchesDeviceID(
+    _In_ PXENFILT_EMULATED_DEVICE_DATA  Device,
+    _In_opt_ PSTR                       DeviceID
     )
 {
-    PXENFILT_EMULATED_CONTEXT   Context = Interface->Context;
-    KIRQL                       Irql;
-    PLIST_ENTRY                 ListEntry;
+    // EmulatedIsDevicePresent: DeviceID == NULL matches the force-activated device
+    if (DeviceID)
+        return _stricmp(DeviceID, Device->DeviceID) == 0;
+    else
+        return Device->ForceActivate == XENBUS_EMULATED_FORCE_ACTIVATED;
+}
+
+static inline BOOLEAN
+EmulatedDeviceMatchesInstanceID(
+    _In_ PXENFILT_EMULATED_DEVICE_DATA  Device,
+    _In_opt_ PSTR                       InstanceID
+    )
+{
+    // EmulatedIsDevicePresent: InstanceID == NULL matches any device instance
+    return InstanceID == NULL || _stricmp(InstanceID, Device->InstanceID) == 0;
+}
+
+static BOOLEAN
+EmulatedIsDevicePresent(
+    _In_ PINTERFACE                                 Interface,
+    _In_opt_ PSTR                                   DeviceID,
+    _In_opt_ PSTR                                   InstanceID,
+    _Out_opt_ PXENBUS_EMULATED_ACTIVATION_STATUS    IsForceActivated
+    )
+{
+    PXENFILT_EMULATED_CONTEXT                       Context = Interface->Context;
+    KIRQL                                           Irql;
+    PLIST_ENTRY                                     ListEntry;
 
     Trace("====> (%s %s)\n",
-          DeviceID,
+          (DeviceID != NULL) ? DeviceID : "ACTIVE",
           (InstanceID != NULL) ? InstanceID : "ANY");
+
+    if (IsForceActivated)
+        *IsForceActivated = XENBUS_EMULATED_ACTIVATE_NEUTRAL;
 
     KeAcquireSpinLock(&Context->Lock, &Irql);
 
     ListEntry = Context->List.Flink;
     while (ListEntry != &Context->List) {
-        PXENFILT_EMULATED_OBJECT    EmulatedObject;
+        PXENFILT_EMULATED_OBJECT        EmulatedObject;
+        PXENFILT_EMULATED_DEVICE_DATA   Device;
 
         EmulatedObject = CONTAINING_RECORD(ListEntry,
                                            XENFILT_EMULATED_OBJECT,
                                            ListEntry);
+        Device = &EmulatedObject->Data.Device;
 
         if (EmulatedObject->Type == XENFILT_EMULATED_OBJECT_TYPE_PCI &&
-            _stricmp(DeviceID, EmulatedObject->Data.Device.DeviceID) == 0 &&
-            (InstanceID == NULL ||
-             _stricmp(InstanceID, EmulatedObject->Data.Device.InstanceID) == 0)) {
+            EmulatedDeviceMatchesDeviceID(Device, DeviceID) &&
+            EmulatedDeviceMatchesInstanceID(Device, InstanceID)) {
             Trace("FOUND\n");
+            if (IsForceActivated)
+                *IsForceActivated = Device->ForceActivate;
             break;
         }
 
@@ -312,9 +378,19 @@ EmulatedIsDevicePresent(
 }
 
 static BOOLEAN
+EmulatedIsDevicePresentVersion1(
+    _In_ PINTERFACE             Interface,
+    _In_ PSTR                   DeviceID,
+    _In_opt_ PSTR               InstanceID
+    )
+{
+    return EmulatedIsDevicePresent(Interface, DeviceID, InstanceID, NULL);
+}
+
+static BOOLEAN
 EmulatedIsDiskPresent(
-    IN  PINTERFACE              Interface,
-    IN  ULONG                   Index
+    _In_ PINTERFACE             Interface,
+    _In_ ULONG                  Index
     )
 {
     PXENFILT_EMULATED_CONTEXT   Context = Interface->Context;
@@ -339,6 +415,12 @@ EmulatedIsDiskPresent(
             break;
         }
 
+        if (EmulatedObject->Type == XENFILT_EMULATED_OBJECT_TYPE_PCI &&
+            EmulatedObject->Data.Device.IsEmulatedNvme) {
+            Trace("FOUND\n");
+            break;
+        }
+
         ListEntry = ListEntry->Flink;
     }
 
@@ -351,10 +433,10 @@ EmulatedIsDiskPresent(
 
 static BOOLEAN
 EmulatedIsDiskPresentVersion1(
-    IN  PINTERFACE              Interface,
-    IN  ULONG                   Controller,
-    IN  ULONG                   Target,
-    IN  ULONG                   Lun
+    _In_ PINTERFACE             Interface,
+    _In_ ULONG                  Controller,
+    _In_ ULONG                  Target,
+    _In_ ULONG                  Lun
     )
 {
     UNREFERENCED_PARAMETER(Controller);
@@ -371,7 +453,7 @@ EmulatedIsDiskPresentVersion1(
 
 NTSTATUS
 EmulatedAcquire(
-    IN  PINTERFACE              Interface
+    _In_ PINTERFACE             Interface
     )
 {
     PXENFILT_EMULATED_CONTEXT   Context = Interface->Context;
@@ -392,7 +474,7 @@ done:
 
 VOID
 EmulatedRelease(
-    IN  PINTERFACE              Interface
+    _In_ PINTERFACE             Interface
     )
 {
     PXENFILT_EMULATED_CONTEXT   Context = Interface->Context;
@@ -413,12 +495,20 @@ static struct _XENFILT_EMULATED_INTERFACE_V1 EmulatedInterfaceVersion1 = {
     { sizeof (struct _XENFILT_EMULATED_INTERFACE_V1), 1, NULL, NULL, NULL },
     EmulatedAcquire,
     EmulatedRelease,
-    EmulatedIsDevicePresent,
+    EmulatedIsDevicePresentVersion1,
     EmulatedIsDiskPresentVersion1
 };
-                     
+
 static struct _XENFILT_EMULATED_INTERFACE_V2 EmulatedInterfaceVersion2 = {
     { sizeof (struct _XENFILT_EMULATED_INTERFACE_V2), 2, NULL, NULL, NULL },
+    EmulatedAcquire,
+    EmulatedRelease,
+    EmulatedIsDevicePresentVersion1,
+    EmulatedIsDiskPresent
+};
+
+static struct _XENFILT_EMULATED_INTERFACE_V3 EmulatedInterfaceVersion3 = {
+    { sizeof (struct _XENFILT_EMULATED_INTERFACE_V3), 3, NULL, NULL, NULL },
     EmulatedAcquire,
     EmulatedRelease,
     EmulatedIsDevicePresent,
@@ -427,10 +517,10 @@ static struct _XENFILT_EMULATED_INTERFACE_V2 EmulatedInterfaceVersion2 = {
 
 NTSTATUS
 EmulatedInitialize(
-    OUT PXENFILT_EMULATED_CONTEXT   *Context
+    _Outptr_ PXENFILT_EMULATED_CONTEXT  *Context
     )
 {
-    NTSTATUS                        status;
+    NTSTATUS                            status;
 
     Trace("====>\n");
 
@@ -455,13 +545,13 @@ fail1:
 
 NTSTATUS
 EmulatedGetInterface(
-    IN      PXENFILT_EMULATED_CONTEXT   Context,
-    IN      ULONG                       Version,
-    IN OUT  PINTERFACE                  Interface,
-    IN      ULONG                       Size
+    _In_ PXENFILT_EMULATED_CONTEXT  Context,
+    _In_ ULONG                      Version,
+    _Inout_ PINTERFACE              Interface,
+    _In_ ULONG                      Size
     )
 {
-    NTSTATUS                            status;
+    NTSTATUS                        status;
 
     ASSERT(Context != NULL);
 
@@ -500,17 +590,34 @@ EmulatedGetInterface(
         status = STATUS_SUCCESS;
         break;
     }
+    case 3: {
+        struct _XENFILT_EMULATED_INTERFACE_V3   *EmulatedInterface;
+
+        EmulatedInterface = (struct _XENFILT_EMULATED_INTERFACE_V3 *)Interface;
+
+        status = STATUS_BUFFER_OVERFLOW;
+        if (Size < sizeof (struct _XENFILT_EMULATED_INTERFACE_V3))
+            break;
+
+        *EmulatedInterface = EmulatedInterfaceVersion3;
+
+        ASSERT3U(Interface->Version, ==, Version);
+        Interface->Context = Context;
+
+        status = STATUS_SUCCESS;
+        break;
+    }
     default:
         status = STATUS_NOT_SUPPORTED;
         break;
     }
 
     return status;
-}   
+}
 
 VOID
 EmulatedTeardown(
-    IN  PXENFILT_EMULATED_CONTEXT   Context
+    _In_ PXENFILT_EMULATED_CONTEXT  Context
     )
 {
     Trace("====>\n");

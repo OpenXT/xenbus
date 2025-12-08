@@ -1,31 +1,32 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -197,7 +198,7 @@ struct _XENBUS_DMA_LIST_CONTROL {
 
 static FORCEINLINE PVOID
 __DmaAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, DMA_TAG);
@@ -205,7 +206,7 @@ __DmaAllocate(
 
 static FORCEINLINE VOID
 __DmaFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, DMA_TAG);
@@ -213,7 +214,7 @@ __DmaFree(
 
 static VOID
 DmaDumpDeviceDescription(
-    IN  PDEVICE_DESCRIPTION DeviceDescription
+    _In_ PDEVICE_DESCRIPTION    DeviceDescription
     )
 {
     Trace("Version = %u\n", DeviceDescription->Version);
@@ -262,7 +263,7 @@ fail1:
 
 static VOID
 DmaDestroyContext(
-    IN  PXENBUS_DMA_CONTEXT Context
+    _In_ PXENBUS_DMA_CONTEXT    Context
     )
 {
     Info("%p\n", Context);
@@ -288,11 +289,11 @@ static PXENBUS_DMA_CONTEXT  DmaContext[NR_CONTEXT_BUCKETS];
 #pragma warning(suppress: 28167) // changes the IRQL and does not restore the IRQL before it exits
 static KIRQL
 DmaAcquireLock(
-    IN  PKSPIN_LOCK         Lock
+    _In_ PKSPIN_LOCK        Lock
     )
 {
     KIRQL       Irql;
-    
+
     Irql = KeGetCurrentIrql();
     if (Irql > DISPATCH_LEVEL)
         return Irql;
@@ -304,8 +305,8 @@ DmaAcquireLock(
 #pragma warning(suppress: 28167) // changes the IRQL and does not restore the IRQL before it exits
 static VOID
 DmaReleaseLock(
-    IN  PKSPIN_LOCK         Lock,
-    IN  KIRQL               Irql
+    _In_ PKSPIN_LOCK        Lock,
+    _In_ KIRQL              Irql
     )
 {
     if (Irql > DISPATCH_LEVEL)
@@ -317,12 +318,12 @@ DmaReleaseLock(
 
 static VOID
 DmaAddContext(
-    IN  PVOID               Key,
-    IN  PXENBUS_DMA_CONTEXT Context
+    _In_ PVOID                  Key,
+    _In_ PXENBUS_DMA_CONTEXT    Context
     )
 {
-    KIRQL                   Irql;
-    ULONG_PTR               Bucket;
+    KIRQL                       Irql;
+    ULONG_PTR                   Bucket;
 
     Context->Key = Key;
 
@@ -335,13 +336,13 @@ DmaAddContext(
 
 static VOID
 DmaRemoveContext(
-    IN  PXENBUS_DMA_CONTEXT Context
+    _In_ PXENBUS_DMA_CONTEXT    Context
     )
 {
-    PVOID                   Key;
-    KIRQL                   Irql;
-    ULONG_PTR               Bucket;
-    PXENBUS_DMA_CONTEXT     *Entry;
+    PVOID                       Key;
+    KIRQL                       Irql;
+    ULONG_PTR                   Bucket;
+    PXENBUS_DMA_CONTEXT         *Entry;
 
     ASSERT(Context != NULL);
     Key = Context->Key;
@@ -364,7 +365,7 @@ DmaRemoveContext(
 
 static PXENBUS_DMA_CONTEXT
 DmaFindContext(
-    IN  PVOID           Key
+    _In_ PVOID          Key
     )
 {
     KIRQL               Irql;
@@ -386,7 +387,7 @@ DmaFindContext(
 
 static VOID
 DmaPutAdapter(
-    IN  PDMA_ADAPTER    Adapter
+    _In_ PDMA_ADAPTER   Adapter
     )
 {
     PXENBUS_DMA_CONTEXT Context;
@@ -403,10 +404,10 @@ DmaPutAdapter(
 
 static PVOID
 DmaAllocateCommonBuffer(
-    IN  PDMA_ADAPTER        Adapter,
-    IN  ULONG               Length,
-    OUT PPHYSICAL_ADDRESS   LogicalAddress,
-    IN  BOOLEAN             CacheEnabled
+    _In_ PDMA_ADAPTER       Adapter,
+    _In_ ULONG              Length,
+    _Out_ PPHYSICAL_ADDRESS LogicalAddress,
+    _In_ BOOLEAN            CacheEnabled
     )
 {
     PXENBUS_DMA_CONTEXT     Context;
@@ -428,11 +429,11 @@ DmaAllocateCommonBuffer(
 
 static VOID
 DmaFreeCommonBuffer(
-    IN  PDMA_ADAPTER        Adapter,
-    IN  ULONG               Length,
-    IN  PHYSICAL_ADDRESS    LogicalAddress,
-    IN  PVOID               VirtualAddress,
-    IN  BOOLEAN             CacheEnabled
+    _In_ PDMA_ADAPTER       Adapter,
+    _In_ ULONG              Length,
+    _In_ PHYSICAL_ADDRESS   LogicalAddress,
+    _In_ PVOID              VirtualAddress,
+    _In_ BOOLEAN            CacheEnabled
     )
 {
     PXENBUS_DMA_CONTEXT     Context;
@@ -452,16 +453,16 @@ DmaFreeCommonBuffer(
 
 static PXENBUS_DMA_CONTROL
 DmaAddControl(
-    IN  PXENBUS_DMA_CONTEXT Context,
-    IN  PDEVICE_OBJECT      DeviceObject,
-    IN  PVOID               TransferContext OPTIONAL,
-    IN  PDRIVER_CONTROL     Function,
-    IN  PVOID               Argument
+    _In_ PXENBUS_DMA_CONTEXT    Context,
+    _In_ PDEVICE_OBJECT         DeviceObject,
+    _In_opt_ PVOID              TransferContext,
+    _In_opt_ PDRIVER_CONTROL    Function,
+    _In_opt_ PVOID              Argument
     )
 {
-    PXENBUS_DMA_CONTROL     Control;
-    KIRQL                   Irql;
-    NTSTATUS                status;
+    PXENBUS_DMA_CONTROL         Control;
+    KIRQL                       Irql;
+    NTSTATUS                    status;
 
     ASSERT3U(KeGetCurrentIrql(), <=, DISPATCH_LEVEL);
     Control = __DmaAllocate(sizeof (XENBUS_DMA_CONTROL));
@@ -490,11 +491,11 @@ fail1:
 
 static VOID
 DmaRemoveControl(
-    IN  PXENBUS_DMA_CONTROL Control
+    _In_ PXENBUS_DMA_CONTROL    Control
     )
 {
-    PXENBUS_DMA_CONTEXT     Context = Control->Context;
-    KIRQL                   Irql;
+    PXENBUS_DMA_CONTEXT         Context = Control->Context;
+    KIRQL                       Irql;
 
     ASSERT3U(KeGetCurrentIrql(), <=, DISPATCH_LEVEL);
     KeAcquireSpinLock(&Context->Lock, &Irql);
@@ -508,10 +509,10 @@ DRIVER_CONTROL DmaAdapterControl;
 
 IO_ALLOCATION_ACTION
 DmaAdapterControl(
-    IN  PDEVICE_OBJECT      DeviceObject,
-    IN  PIRP                Irp,
-    IN  PVOID               MapRegisterBase,
-    IN  PVOID               _Context
+    PDEVICE_OBJECT          DeviceObject,
+    PIRP                    Irp,
+    PVOID                   MapRegisterBase,
+    PVOID                   _Context
     )
 {
     PXENBUS_DMA_CONTROL     Control = _Context;
@@ -536,17 +537,17 @@ DmaAdapterControl(
 
 static NTSTATUS
 DmaAllocateAdapterChannel(
-    IN  PDMA_ADAPTER    Adapter,
-    IN  PDEVICE_OBJECT  DeviceObject,
-    IN  ULONG           NumberOfMapRegisters,
-    IN  PDRIVER_CONTROL Function,
-    IN  PVOID           Argument
+    _In_ PDMA_ADAPTER       Adapter,
+    _In_ PDEVICE_OBJECT     DeviceObject,
+    _In_ ULONG              NumberOfMapRegisters,
+    _In_ PDRIVER_CONTROL    Function,
+    _In_ PVOID              Argument
     )
 {
-    PXENBUS_DMA_CONTEXT Context;
-    PXENBUS_DMA_CONTROL Control;
-    PDMA_OPERATIONS     Operations;
-    NTSTATUS            status;
+    PXENBUS_DMA_CONTEXT     Context;
+    PXENBUS_DMA_CONTROL     Control;
+    PDMA_OPERATIONS         Operations;
+    NTSTATUS                status;
 
     UNREFERENCED_PARAMETER(DeviceObject);
 
@@ -565,10 +566,10 @@ DmaAllocateAdapterChannel(
     }
 
     Control = DmaAddControl(Context,
-                              DeviceObject,
-                              NULL,
-                              Function,
-                              Argument);
+                            DeviceObject,
+                            NULL,
+                            Function,
+                            Argument);
 
     status = STATUS_NO_MEMORY;
     if (Control == NULL)
@@ -594,20 +595,20 @@ fail1:
 
 static NTSTATUS
 DmaAllocateAdapterChannelEx(
-    IN  PDMA_ADAPTER    Adapter,
-    IN  PDEVICE_OBJECT  DeviceObject,
-    IN  PVOID           TransferContext,
-    IN  ULONG           NumberOfMapRegisters,
-    IN  ULONG           Flags,
-    IN  PDRIVER_CONTROL Function OPTIONAL,
-    IN  PVOID           Argument OPTIONAL,
-    OUT PVOID           *MapRegisterBase OPTIONAL
+    _In_ PDMA_ADAPTER           Adapter,
+    _In_ PDEVICE_OBJECT         DeviceObject,
+    _In_ PVOID                  TransferContext,
+    _In_ ULONG                  NumberOfMapRegisters,
+    _In_ ULONG                  Flags,
+    _In_opt_ PDRIVER_CONTROL    Function,
+    _In_opt_ PVOID              Argument,
+    _Out_opt_ PVOID             *MapRegisterBase
     )
 {
-    PXENBUS_DMA_CONTEXT Context;
-    PXENBUS_DMA_CONTROL Control;
-    PDMA_OPERATIONS     Operations;
-    NTSTATUS            status;
+    PXENBUS_DMA_CONTEXT         Context;
+    PXENBUS_DMA_CONTROL         Control;
+    PDMA_OPERATIONS             Operations;
+    NTSTATUS                    status;
 
     UNREFERENCED_PARAMETER(DeviceObject);
 
@@ -630,10 +631,10 @@ DmaAllocateAdapterChannelEx(
     }
 
     Control = DmaAddControl(Context,
-                              DeviceObject,
-                              TransferContext,
-                              Function,
-                              Argument);
+                            DeviceObject,
+                            TransferContext,
+                            Function,
+                            Argument);
 
     status = STATUS_NO_MEMORY;
     if (Control == NULL)
@@ -662,12 +663,12 @@ fail1:
 
 static BOOLEAN
 DmaFlushAdapterBuffers(
-    IN  PDMA_ADAPTER    Adapter,
-    IN  PMDL            Mdl,
-    IN  PVOID           MapRegisterBase,
-    IN  PVOID           CurrentVa,
-    IN  ULONG           Length,
-    IN  BOOLEAN         WriteToDevice
+    _In_ PDMA_ADAPTER   Adapter,
+    _In_ PMDL           Mdl,
+    _In_ PVOID          MapRegisterBase,
+    _In_ PVOID          CurrentVa,
+    _In_ ULONG          Length,
+    _In_ BOOLEAN        WriteToDevice
     )
 {
     PXENBUS_DMA_CONTEXT Context;
@@ -689,7 +690,7 @@ DmaFlushAdapterBuffers(
 
 static VOID
 DmaFreeAdapterChannel(
-    IN  PDMA_ADAPTER    Adapter
+    _In_ PDMA_ADAPTER   Adapter
     )
 {
     PXENBUS_DMA_CONTEXT Context;
@@ -705,9 +706,9 @@ DmaFreeAdapterChannel(
 
 static VOID
 DmaFreeMapRegisters(
-    IN  PDMA_ADAPTER    Adapter,
-    IN  PVOID           MapRegisterBase,
-    IN  ULONG           NumberOfMapRegisters
+    _In_ PDMA_ADAPTER   Adapter,
+    _In_ PVOID          MapRegisterBase,
+    _In_ ULONG          NumberOfMapRegisters
     )
 {
     PXENBUS_DMA_CONTEXT Context;
@@ -730,17 +731,17 @@ DmaFreeMapRegisters(
 
 static PHYSICAL_ADDRESS
 DmaMapTransfer(
-    IN      PDMA_ADAPTER    Adapter,
-    IN      PMDL            Mdl,
-    IN      PVOID           MapRegisterBase,
-    IN      PVOID           CurrentVa,
-    IN OUT  PULONG          Length,
-    IN      BOOLEAN         WriteToDevice
+    _In_ PDMA_ADAPTER   Adapter,
+    _In_ PMDL           Mdl,
+    _In_ PVOID          MapRegisterBase,
+    _In_ PVOID          CurrentVa,
+    _Inout_ PULONG      Length,
+    _In_ BOOLEAN        WriteToDevice
     )
 {
-    PXENBUS_DMA_CONTEXT     Context;
-    PDMA_OPERATIONS         Operations;
-    PHYSICAL_ADDRESS        LogicalAddress;
+    PXENBUS_DMA_CONTEXT Context;
+    PDMA_OPERATIONS     Operations;
+    PHYSICAL_ADDRESS    LogicalAddress;
 
     Context = DmaFindContext(Adapter);
 
@@ -751,13 +752,13 @@ DmaMapTransfer(
                                              CurrentVa,
                                              Length,
                                              WriteToDevice);
-    
+
     return LogicalAddress;
 }
 
 static ULONG
 DmaGetAlignment(
-    IN  PDMA_ADAPTER    Adapter
+    _In_ PDMA_ADAPTER   Adapter
     )
 {
     PXENBUS_DMA_CONTEXT Context;
@@ -776,7 +777,7 @@ DmaGetAlignment(
 
 static ULONG
 DmaReadCounter(
-    IN  PDMA_ADAPTER    Adapter
+    _In_ PDMA_ADAPTER   Adapter
     )
 {
     PXENBUS_DMA_CONTEXT Context;
@@ -787,22 +788,22 @@ DmaReadCounter(
 
     Operations = Context->LowerOperations;
     Counter = Operations->ReadDmaCounter(Context->LowerAdapter);
-    
+
     return Counter;
 }
 
 static PXENBUS_DMA_LIST_CONTROL
 DmaAddListControl(
-    IN  PXENBUS_DMA_CONTEXT     Context,
-    IN  PDEVICE_OBJECT          DeviceObject,
-    IN  PVOID                   TransferContext OPTIONAL,
-    IN  PDRIVER_LIST_CONTROL    Function,
-    IN  PVOID                   Argument
+    _In_ PXENBUS_DMA_CONTEXT        Context,
+    _In_ PDEVICE_OBJECT             DeviceObject,
+    _In_opt_ PVOID                  TransferContext,
+    _In_opt_ PDRIVER_LIST_CONTROL   Function,
+    _In_opt_ PVOID                  Argument
     )
 {
-    PXENBUS_DMA_LIST_CONTROL    ListControl;
-    KIRQL                       Irql;
-    NTSTATUS                    status;
+    PXENBUS_DMA_LIST_CONTROL        ListControl;
+    KIRQL                           Irql;
+    NTSTATUS                        status;
 
     ASSERT3U(KeGetCurrentIrql(), <=, DISPATCH_LEVEL);
     ListControl = __DmaAllocate(sizeof (XENBUS_DMA_LIST_CONTROL));
@@ -831,7 +832,7 @@ fail1:
 
 static VOID
 DmaRemoveListControl(
-    IN  PXENBUS_DMA_LIST_CONTROL    ListControl
+    _In_ PXENBUS_DMA_LIST_CONTROL   ListControl
     )
 {
     PXENBUS_DMA_CONTEXT             Context = ListControl->Context;
@@ -849,10 +850,10 @@ DRIVER_LIST_CONTROL DmaAdapterListControl;
 
 VOID
 DmaAdapterListControl(
-    IN  PDEVICE_OBJECT          DeviceObject,
-    IN  PIRP                    Irp,
-    IN  PSCATTER_GATHER_LIST    ScatterGather,
-    IN  PVOID                   _Context
+    _In_ PDEVICE_OBJECT         DeviceObject,
+    _In_ PIRP                   Irp,
+    _In_ PSCATTER_GATHER_LIST   ScatterGather,
+    _In_ PVOID                  _Context
     )
 {
     PXENBUS_DMA_LIST_CONTROL    ListControl = _Context;
@@ -870,14 +871,14 @@ DmaAdapterListControl(
 
 static NTSTATUS
 DmaGetScatterGatherList(
-    IN  PDMA_ADAPTER            Adapter,
-    IN  PDEVICE_OBJECT          DeviceObject,
-    IN  PMDL                    Mdl,
-    IN  PVOID                   CurrentVa,
-    IN  ULONG                   Length,
-    IN  PDRIVER_LIST_CONTROL    Function,
-    IN  PVOID                   Argument,
-    IN  BOOLEAN                 WriteToDevice
+    _In_ PDMA_ADAPTER           Adapter,
+    _In_ PDEVICE_OBJECT         DeviceObject,
+    _In_ PMDL                   Mdl,
+    _In_ PVOID                  CurrentVa,
+    _In_ ULONG                  Length,
+    _In_ PDRIVER_LIST_CONTROL   Function,
+    _In_ PVOID                  Argument,
+    _In_ BOOLEAN                WriteToDevice
     )
 {
     PXENBUS_DMA_CONTEXT         Context;
@@ -936,25 +937,25 @@ fail1:
 
 static NTSTATUS
 DmaGetScatterGatherListEx(
-    IN  PDMA_ADAPTER            Adapter,
-    IN  PDEVICE_OBJECT          DeviceObject,
-    IN  PVOID                   TransferContext,
-    IN  PMDL                    Mdl,
-    IN  ULONGLONG               Offset,
-    IN  ULONG                   Length,
-    IN  ULONG                   Flags,
-    IN  PDRIVER_LIST_CONTROL    Function,
-    IN  PVOID                   Argument OPTIONAL,
-    IN  BOOLEAN                 WriteToDevice,
-    IN  PDMA_COMPLETION_ROUTINE CompletionRoutine OPTIONAL,
-    IN  PVOID                   CompletionContext OPTIONAL,
-    OUT PSCATTER_GATHER_LIST    *ScatterGatherList OPTIONAL
+    _In_ PDMA_ADAPTER                   Adapter,
+    _In_ PDEVICE_OBJECT                 DeviceObject,
+    _In_ PVOID                          TransferContext,
+    _In_ PMDL                           Mdl,
+    _In_ ULONGLONG                      Offset,
+    _In_ ULONG                          Length,
+    _In_ ULONG                          Flags,
+    _In_ PDRIVER_LIST_CONTROL           Function,
+    _In_opt_ PVOID                      Argument,
+    _In_ BOOLEAN                        WriteToDevice,
+    _In_opt_ PDMA_COMPLETION_ROUTINE    CompletionRoutine,
+    _In_opt_ PVOID                      CompletionContext,
+    _Out_opt_ PSCATTER_GATHER_LIST      *ScatterGatherList
     )
 {
-    PXENBUS_DMA_CONTEXT         Context;
-    PXENBUS_DMA_LIST_CONTROL    ListControl;
-    PDMA_OPERATIONS             Operations;
-    NTSTATUS                    status;
+    PXENBUS_DMA_CONTEXT                 Context;
+    PXENBUS_DMA_LIST_CONTROL            ListControl;
+    PDMA_OPERATIONS                     Operations;
+    NTSTATUS                            status;
 
     UNREFERENCED_PARAMETER(DeviceObject);
 
@@ -1016,12 +1017,12 @@ fail1:
 
 static NTSTATUS
 DmaCalculateScatterGatherList(
-    IN  PDMA_ADAPTER    Adapter,
-    IN  PMDL            Mdl OPTIONAL,
-    IN  PVOID           CurrentVa,
-    IN  ULONG           Length,
-    OUT PULONG          ScatterGatherListSize,
-    OUT PULONG          NumberOfMapRegisters OPTIONAL
+    _In_ PDMA_ADAPTER   Adapter,
+    _In_opt_ PMDL       Mdl,
+    _In_ PVOID          CurrentVa,
+    _In_ ULONG          Length,
+    _Out_ PULONG        ScatterGatherListSize,
+    _Out_opt_ PULONG    NumberOfMapRegisters
     )
 {
     PXENBUS_DMA_CONTEXT Context;
@@ -1032,6 +1033,7 @@ DmaCalculateScatterGatherList(
     ASSERT3U(Context->Version, >=, 2);
 
     Operations = Context->LowerOperations;
+#pragma prefast(suppress:6387) // bad CalculateScatterGatherList signature
     status = Operations->CalculateScatterGatherList(Context->LowerAdapter,
                                                     Mdl,
                                                     CurrentVa,
@@ -1044,16 +1046,16 @@ DmaCalculateScatterGatherList(
 
 static NTSTATUS
 DmaBuildScatterGatherList(
-    IN  PDMA_ADAPTER            Adapter,
-    IN  PDEVICE_OBJECT          DeviceObject,
-    IN  PMDL                    Mdl,
-    IN  PVOID                   CurrentVa,
-    IN  ULONG                   Length,
-    IN  PDRIVER_LIST_CONTROL    Function,
-    IN  PVOID                   Argument,
-    IN  BOOLEAN                 WriteToDevice,
-    IN  PVOID                   ScatterGatherBuffer,
-    IN  ULONG                   ScatterGatherBufferLength
+    _In_ PDMA_ADAPTER           Adapter,
+    _In_ PDEVICE_OBJECT         DeviceObject,
+    _In_ PMDL                   Mdl,
+    _In_ PVOID                  CurrentVa,
+    _In_ ULONG                  Length,
+    _In_ PDRIVER_LIST_CONTROL   Function,
+    _In_ PVOID                  Argument,
+    _In_ BOOLEAN                WriteToDevice,
+    _In_ PVOID                  ScatterGatherBuffer,
+    _In_ ULONG                  ScatterGatherBufferLength
     )
 {
     PXENBUS_DMA_CONTEXT         Context;
@@ -1118,27 +1120,27 @@ fail1:
 
 static NTSTATUS
 DmaBuildScatterGatherListEx(
-    IN  PDMA_ADAPTER            Adapter,
-    IN  PDEVICE_OBJECT          DeviceObject,
-    IN  PVOID                   TransferContext,
-    IN  PMDL                    Mdl,
-    IN  ULONGLONG               Offset,
-    IN  ULONG                   Length,
-    IN  ULONG                   Flags,
-    IN  PDRIVER_LIST_CONTROL    Function OPTIONAL,
-    IN  PVOID                   Argument OPTIONAL,
-    IN  BOOLEAN                 WriteToDevice,
-    IN  PVOID                   ScatterGatherBuffer,
-    IN  ULONG                   ScatterGatherBufferLength,
-    IN  PDMA_COMPLETION_ROUTINE CompletionRoutine OPTIONAL,
-    IN  PVOID                   CompletionContext OPTIONAL,
-    OUT PSCATTER_GATHER_LIST    *ScatterGatherList OPTIONAL
+    _In_ PDMA_ADAPTER                   Adapter,
+    _In_ PDEVICE_OBJECT                 DeviceObject,
+    _In_ PVOID                          TransferContext,
+    _In_ PMDL                           Mdl,
+    _In_ ULONGLONG                      Offset,
+    _In_ ULONG                          Length,
+    _In_ ULONG                          Flags,
+    _In_opt_ PDRIVER_LIST_CONTROL       Function,
+    _In_opt_ PVOID                      Argument,
+    _In_ BOOLEAN                        WriteToDevice,
+    _In_ PVOID                          ScatterGatherBuffer,
+    _In_ ULONG                          ScatterGatherBufferLength,
+    _In_opt_ PDMA_COMPLETION_ROUTINE    CompletionRoutine,
+    _In_opt_ PVOID                      CompletionContext,
+    _Out_opt_ PSCATTER_GATHER_LIST      *ScatterGatherList
     )
 {
-    PXENBUS_DMA_CONTEXT         Context;
-    PXENBUS_DMA_LIST_CONTROL    ListControl;
-    PDMA_OPERATIONS             Operations;
-    NTSTATUS                    status;
+    PXENBUS_DMA_CONTEXT                 Context;
+    PXENBUS_DMA_LIST_CONTROL            ListControl;
+    PDMA_OPERATIONS                     Operations;
+    NTSTATUS                            status;
 
     UNREFERENCED_PARAMETER(DeviceObject);
 
@@ -1206,9 +1208,9 @@ fail1:
 
 static VOID
 DmaPutScatterGatherList(
-    IN  PDMA_ADAPTER            Adapter,
-    IN  PSCATTER_GATHER_LIST    ScatterGather,
-    IN  BOOLEAN                 WriteToDevice
+    _In_ PDMA_ADAPTER           Adapter,
+    _In_ PSCATTER_GATHER_LIST   ScatterGather,
+    _In_ BOOLEAN                WriteToDevice
     )
 
 {
@@ -1216,7 +1218,7 @@ DmaPutScatterGatherList(
     PDMA_OPERATIONS             Operations;
 
     ASSERT3U(KeGetCurrentIrql(), >=, DISPATCH_LEVEL);
- 
+
     Context = DmaFindContext(Adapter);
 
     Operations = Context->LowerOperations;
@@ -1227,10 +1229,10 @@ DmaPutScatterGatherList(
 
 static NTSTATUS
 DmaBuildMdlFromScatterGatherList(
-    IN  PDMA_ADAPTER            Adapter,
-    IN  PSCATTER_GATHER_LIST    ScatterGather,
-    IN  PMDL                    OriginalMdl,
-    IN  PMDL                    *TargetMdl
+    _In_ PDMA_ADAPTER           Adapter,
+    _In_ PSCATTER_GATHER_LIST   ScatterGather,
+    _In_ PMDL                   OriginalMdl,
+    _In_ PMDL                   *TargetMdl
     )
 {
     PXENBUS_DMA_CONTEXT         Context;
@@ -1244,16 +1246,16 @@ DmaBuildMdlFromScatterGatherList(
     status = Operations->BuildMdlFromScatterGatherList(Context->LowerAdapter,
                                                        ScatterGather,
                                                        OriginalMdl,
-                                                       TargetMdl);  
+                                                       TargetMdl);
 
     return status;
 }
 
 static BOOLEAN
 DmaCancelAdapterChannel(
-    IN  PDMA_ADAPTER    Adapter,
-    IN  PDEVICE_OBJECT  DeviceObject,
-    IN  PVOID           TransferContext
+    _In_ PDMA_ADAPTER   Adapter,
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ PVOID          TransferContext
     )
 {
     PXENBUS_DMA_CONTEXT Context;
@@ -1309,8 +1311,8 @@ DmaCancelAdapterChannel(
 
 static NTSTATUS
 DmaGetAdapterInfo(
-    IN      PDMA_ADAPTER        Adapter,
-    IN OUT  PDMA_ADAPTER_INFO   AdapterInfo
+    _In_ PDMA_ADAPTER           Adapter,
+    _Inout_ PDMA_ADAPTER_INFO   AdapterInfo
     )
 {
     PXENBUS_DMA_CONTEXT         Context;
@@ -1329,12 +1331,12 @@ DmaGetAdapterInfo(
 
 static NTSTATUS
 DmaGetTransferInfo(
-    IN  PDMA_ADAPTER            Adapter,
-    IN  PMDL                    Mdl,
-    IN  ULONGLONG               Offset,
-    IN  ULONG                   Length,
-    IN  BOOLEAN                 WriteOnly,
-    IN OUT  PDMA_TRANSFER_INFO  TransferInfo
+    _In_ PDMA_ADAPTER           Adapter,
+    _In_ PMDL                   Mdl,
+    _In_ ULONGLONG              Offset,
+    _In_ ULONG                  Length,
+    _In_ BOOLEAN                WriteOnly,
+    _Inout_ PDMA_TRANSFER_INFO  TransferInfo
     )
 {
     PXENBUS_DMA_CONTEXT         Context;
@@ -1357,8 +1359,8 @@ DmaGetTransferInfo(
 
 static NTSTATUS
 DmaInitializeTransferContext(
-    IN  PDMA_ADAPTER    Adapter,
-    OUT PVOID           TransferContext
+    _In_ PDMA_ADAPTER   Adapter,
+    _Out_ PVOID         TransferContext
     )
 {
     PXENBUS_DMA_CONTEXT Context;
@@ -1377,17 +1379,17 @@ DmaInitializeTransferContext(
 
 static PVOID
 DmaAllocateCommonBufferEx(
-    IN  PDMA_ADAPTER        Adapter,
-    IN  PPHYSICAL_ADDRESS   MaximumAddress OPTIONAL,
-    IN  ULONG               Length,
-    OUT PPHYSICAL_ADDRESS   LogicalAddress,
-    IN  BOOLEAN             CacheEnabled,
-    IN  NODE_REQUIREMENT    PreferredNode
+    _In_ PDMA_ADAPTER           Adapter,
+    _In_opt_ PPHYSICAL_ADDRESS  MaximumAddress,
+    _In_ ULONG                  Length,
+    _Out_ PPHYSICAL_ADDRESS     LogicalAddress,
+    _In_ BOOLEAN                CacheEnabled,
+    _In_ NODE_REQUIREMENT       PreferredNode
     )
 {
-    PXENBUS_DMA_CONTEXT     Context;
-    PDMA_OPERATIONS         Operations;
-    PVOID                   Buffer;
+    PXENBUS_DMA_CONTEXT         Context;
+    PDMA_OPERATIONS             Operations;
+    PVOID                       Buffer;
 
     ASSERTIRQL(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
 
@@ -1407,9 +1409,9 @@ DmaAllocateCommonBufferEx(
 
 static NTSTATUS
 DmaConfigureAdapterChannel(
-    IN  PDMA_ADAPTER    Adapter,
-    IN  ULONG           FunctionNumber,
-    IN  PVOID           Argument
+    _In_ PDMA_ADAPTER   Adapter,
+    _In_ ULONG          FunctionNumber,
+    _In_ PVOID          Argument
     )
 {
     PXENBUS_DMA_CONTEXT Context;
@@ -1429,22 +1431,22 @@ DmaConfigureAdapterChannel(
 
 static NTSTATUS
 DmaMapTransferEx(
-    IN      PDMA_ADAPTER            Adapter,
-    IN      PMDL                    Mdl,
-    IN      PVOID                   MapRegisterBase,
-    IN      ULONGLONG               Offset,
-    IN      ULONG                   DeviceOffset,
-    IN OUT  PULONG                  Length,
-    IN      BOOLEAN                 WriteToDevice,
-    OUT     PSCATTER_GATHER_LIST    ScatterGatherBuffer OPTIONAL,
-    IN      ULONG                   ScatterGatherBufferLength,
-    IN      PDMA_COMPLETION_ROUTINE CompletionRoutine OPTIONAL,
-    IN      PVOID                   CompletionContext OPTIONAL
+    _In_ PDMA_ADAPTER                   Adapter,
+    _In_ PMDL                           Mdl,
+    _In_ PVOID                          MapRegisterBase,
+    _In_ ULONGLONG                      Offset,
+    _In_ ULONG                          DeviceOffset,
+    _Inout_ PULONG                      Length,
+    _In_ BOOLEAN                        WriteToDevice,
+    _Out_opt_ PSCATTER_GATHER_LIST      ScatterGatherBuffer,
+    _In_ ULONG                          ScatterGatherBufferLength,
+    _In_opt_ PDMA_COMPLETION_ROUTINE    CompletionRoutine,
+    _In_opt_ PVOID                      CompletionContext
     )
 {
-    PXENBUS_DMA_CONTEXT             Context;
-    PDMA_OPERATIONS                 Operations;
-    NTSTATUS                        status;
+    PXENBUS_DMA_CONTEXT                 Context;
+    PDMA_OPERATIONS                     Operations;
+    NTSTATUS                            status;
 
     Context = DmaFindContext(Adapter);
     ASSERT3U(Context->Version, >=, 3);
@@ -1467,12 +1469,12 @@ DmaMapTransferEx(
 
 static NTSTATUS
 DmaFlushAdapterBuffersEx(
-    IN  PDMA_ADAPTER    Adapter,
-    IN  PMDL            Mdl,
-    IN  PVOID           MapRegisterBase,
-    IN  ULONGLONG       Offset,
-    IN  ULONG           Length,
-    IN  BOOLEAN         WriteToDevice
+    _In_ PDMA_ADAPTER   Adapter,
+    _In_ PMDL           Mdl,
+    _In_ PVOID          MapRegisterBase,
+    _In_ ULONGLONG      Offset,
+    _In_ ULONG          Length,
+    _In_ BOOLEAN        WriteToDevice
     )
 {
     PXENBUS_DMA_CONTEXT Context;
@@ -1495,8 +1497,8 @@ DmaFlushAdapterBuffersEx(
 
 static VOID
 DmaFreeAdapterObject(
-    IN  PDMA_ADAPTER            Adapter,
-    IN  IO_ALLOCATION_ACTION    AllocationAction
+    _In_ PDMA_ADAPTER           Adapter,
+    _In_ IO_ALLOCATION_ACTION   AllocationAction
     )
 {
     PXENBUS_DMA_CONTEXT         Context;
@@ -1530,8 +1532,8 @@ DmaFreeAdapterObject(
 
 static NTSTATUS
 DmaCancelMappedTransfer(
-    IN  PDMA_ADAPTER    Adapter,
-    IN  PVOID           TransferContext
+    _In_ PDMA_ADAPTER   Adapter,
+    _In_ PVOID          TransferContext
     )
 {
     PXENBUS_DMA_CONTEXT Context;
@@ -1592,17 +1594,17 @@ static DMA_OPERATIONS   DmaOperations = {
 
 PDMA_ADAPTER
 DmaGetAdapter(
-    IN  PXENBUS_PDO             Pdo,
-    IN  XENBUS_DMA_ADAPTER_TYPE Type,
-    IN  PDEVICE_DESCRIPTION     DeviceDescription,
-    OUT PULONG                  NumberOfMapRegisters
+    _In_ PXENBUS_PDO                Pdo,
+    _In_ XENBUS_DMA_ADAPTER_TYPE    Type,
+    _In_ PDEVICE_DESCRIPTION        DeviceDescription,
+    _Out_ PULONG                    NumberOfMapRegisters
     )
 {
-    PDMA_ADAPTER                LowerAdapter;
-    PDEVICE_OBJECT              LowerDeviceObject;
-    PXENBUS_DMA_CONTEXT         Context;
-    PDMA_ADAPTER                Adapter;
-    NTSTATUS                    status;
+    PDMA_ADAPTER                    LowerAdapter;
+    PDEVICE_OBJECT                  LowerDeviceObject;
+    PXENBUS_DMA_CONTEXT             Context;
+    PDMA_ADAPTER                    Adapter;
+    NTSTATUS                        status;
 
     DmaDumpDeviceDescription(DeviceDescription);
 
@@ -1634,7 +1636,7 @@ DmaGetAdapter(
         goto fail2;
 
     Context->LowerAdapter = LowerAdapter;
-    Context->LowerOperations = LowerAdapter->DmaOperations; 
+    Context->LowerOperations = LowerAdapter->DmaOperations;
     Context->LowerDeviceObject = LowerDeviceObject;
 
     switch (Context->LowerOperations->Size) {
@@ -1660,7 +1662,7 @@ DmaGetAdapter(
 
     // Copy in the requisite number of operations
     RtlCopyMemory(&Context->Operations,
-                  &DmaOperations, 
+                  &DmaOperations,
                   Context->LowerOperations->Size);
     Context->Operations.Size = Context->LowerOperations->Size;
 
