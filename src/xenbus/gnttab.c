@@ -1,31 +1,32 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -69,18 +70,22 @@ struct _XENBUS_GNTTAB_ENTRY {
 };
 
 typedef struct _XENBUS_GNTTAB_MAP_ENTRY {
-    ULONG   NumberPages;
+    PMDL    Mdl;
     ULONG   MapHandles[1];
 } XENBUS_GNTTAB_MAP_ENTRY, *PXENBUS_GNTTAB_MAP_ENTRY;
+
+typedef struct _XENBUS_GNTTAB_FRAME {
+    PMDL                        Mdl;
+    grant_entry_v1_t            *Entry;
+} XENBUS_GNTTAB_FRAME, *PXENBUS_GNTTAB_FRAME;
 
 struct _XENBUS_GNTTAB_CONTEXT {
     PXENBUS_FDO                 Fdo;
     KSPIN_LOCK                  Lock;
     LONG                        References;
     ULONG                       MaximumFrameCount;
-    PHYSICAL_ADDRESS            Address;
+    PXENBUS_GNTTAB_FRAME        Frame;
     LONG                        FrameIndex;
-    grant_entry_v1_t            *Table;
     XENBUS_RANGE_SET_INTERFACE  RangeSetInterface;
     PXENBUS_RANGE_SET           RangeSet;
     XENBUS_CACHE_INTERFACE      CacheInterface;
@@ -96,7 +101,7 @@ struct _XENBUS_GNTTAB_CONTEXT {
 
 static FORCEINLINE PVOID
 __GnttabAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, XENBUS_GNTTAB_TAG);
@@ -104,7 +109,7 @@ __GnttabAllocate(
 
 static FORCEINLINE VOID
 __GnttabFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, XENBUS_GNTTAB_TAG);
@@ -112,10 +117,12 @@ __GnttabFree(
 
 static NTSTATUS
 GnttabExpand(
-    IN  PXENBUS_GNTTAB_CONTEXT  Context
+    _In_ PXENBUS_GNTTAB_CONTEXT Context
     )
 {
     ULONG                       Index;
+    PXENBUS_GNTTAB_FRAME        Frame;
+    PFN_NUMBER                  Pfn;
     PHYSICAL_ADDRESS            Address;
     LONGLONG                    Start;
     LONGLONG                    End;
@@ -128,14 +135,22 @@ GnttabExpand(
     if (Index == Context->MaximumFrameCount)
         goto fail1;
 
-    Address = Context->Address;
-    Address.QuadPart += (ULONGLONG)Index << PAGE_SHIFT;
+    Frame = &Context->Frame[Index];
+    Frame->Mdl = FdoHoleAllocate(Context->Fdo, 1);
 
-    status = MemoryAddToPhysmap((PFN_NUMBER)(Address.QuadPart >> PAGE_SHIFT),
-                                XENMAPSPACE_grant_table,
-                                Index);
-    if (!NT_SUCCESS(status))
+    status = STATUS_NO_MEMORY;
+    if (Frame->Mdl == NULL)
         goto fail2;
+
+    Frame->Entry = Frame->Mdl->StartVa;
+
+    Pfn = MmGetMdlPfnArray(Frame->Mdl)[0];
+
+    status = MemoryAddToPhysmap(Pfn, XENMAPSPACE_grant_table, Index);
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    Address.QuadPart = Pfn << PAGE_SHIFT;
 
     LogPrintf(LOG_LEVEL_INFO,
               "GNTTAB: MAP XENMAPSPACE_grant_table[%d] @ %08x.%08x\n",
@@ -153,16 +168,24 @@ GnttabExpand(
                               Start,
                               End + 1 - Start);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
 
     Info("added references [%08llx - %08llx]\n", Start, End);
 
     return STATUS_SUCCESS;
 
+fail4:
+    Error("fail4\n");
+
+    (VOID) MemoryRemoveFromPhysmap(Pfn);
+
 fail3:
     Error("fail3\n");
 
-    // Not clear what to do here
+    Frame->Entry = NULL;
+
+    FdoHoleFree(Context->Fdo, Frame->Mdl);
+    Frame->Mdl = NULL;
 
 fail2:
     Error("fail2\n");
@@ -177,61 +200,70 @@ fail1:
 
 static VOID
 GnttabMap(
-    IN  PXENBUS_GNTTAB_CONTEXT  Context
+    _In_ PXENBUS_GNTTAB_CONTEXT Context
     )
 {
     LONG                        Index;
-    PHYSICAL_ADDRESS            Address;
     NTSTATUS                    status;
 
-    Address = Context->Address;
-
     for (Index = 0; Index <= Context->FrameIndex; Index++) {
-        status = MemoryAddToPhysmap((PFN_NUMBER)(Address.QuadPart >> PAGE_SHIFT),
-                                    XENMAPSPACE_grant_table,
-                                    Index);
+        PXENBUS_GNTTAB_FRAME    Frame = &Context->Frame[Index];
+        PFN_NUMBER              Pfn;
+        PHYSICAL_ADDRESS        Address;
+
+        Pfn = MmGetMdlPfnArray(Frame->Mdl)[0];
+
+        status = MemoryAddToPhysmap(Pfn, XENMAPSPACE_grant_table, Index);
         ASSERT(NT_SUCCESS(status));
+
+        Address.QuadPart = Pfn << PAGE_SHIFT;
 
         LogPrintf(LOG_LEVEL_INFO,
                   "GNTTAB: MAP XENMAPSPACE_grant_table[%d] @ %08x.%08x\n",
                   Index,
                   Address.HighPart,
                   Address.LowPart);
-
-        Address.QuadPart += PAGE_SIZE;
     }
 }
 
 static VOID
 GnttabUnmap(
-    IN  PXENBUS_GNTTAB_CONTEXT  Context
+    _In_ PXENBUS_GNTTAB_CONTEXT Context
     )
 {
     LONG                        Index;
 
-    // Not clear what to do here
+    for (Index = Context->FrameIndex; Index >= 0; --Index) {
+        PXENBUS_GNTTAB_FRAME    Frame = &Context->Frame[Index];
+        PFN_NUMBER              Pfn;
 
-    for (Index = Context->FrameIndex; Index >= 0; --Index)
+        Pfn = MmGetMdlPfnArray(Frame->Mdl)[0];
+
+        (VOID) MemoryRemoveFromPhysmap(Pfn);
+
         LogPrintf(LOG_LEVEL_INFO,
                   "GNTTAB: UNMAP XENMAPSPACE_grant_table[%d]\n",
                   Index);
+    }
 }
 
 static VOID
 GnttabContract(
-    IN  PXENBUS_GNTTAB_CONTEXT  Context
+    _In_ PXENBUS_GNTTAB_CONTEXT Context
     )
 {
+    LONG                        Index;
     NTSTATUS                    status;
 
-    GnttabUnmap(Context);
+    for (Index = Context->FrameIndex; Index >= 0; --Index) {
+        PXENBUS_GNTTAB_FRAME    Frame = &Context->Frame[Index];
+        LONGLONG                Start;
+        LONGLONG                End;
+        PFN_NUMBER              Pfn;
 
-    if (Context->FrameIndex >= 0) {
-        LONGLONG    Start;
-        LONGLONG    End;
-
-        Start = XENBUS_GNTTAB_RESERVED_ENTRY_COUNT;
-        End = ((Context->FrameIndex + 1) * XENBUS_GNTTAB_ENTRY_PER_FRAME) - 1;
+        Start = __max(XENBUS_GNTTAB_RESERVED_ENTRY_COUNT,
+                      Index * XENBUS_GNTTAB_ENTRY_PER_FRAME);
+        End = ((Index + 1) * XENBUS_GNTTAB_ENTRY_PER_FRAME) - 1;
 
         status = XENBUS_RANGE_SET(Get,
                                   &Context->RangeSetInterface,
@@ -241,6 +273,16 @@ GnttabContract(
         ASSERT(NT_SUCCESS(status));
 
         Info("removed refrences [%08llx - %08llx]\n", Start, End);
+
+        ASSERT(Frame->Mdl != NULL);
+        Pfn = MmGetMdlPfnArray(Frame->Mdl)[0];
+
+        (VOID) MemoryRemoveFromPhysmap(Pfn);
+
+        Frame->Entry = NULL;
+
+        FdoHoleFree(Context->Fdo, Frame->Mdl);
+        Frame->Mdl = NULL;
     }
 
     Context->FrameIndex = -1;
@@ -248,8 +290,8 @@ GnttabContract(
 
 static NTSTATUS
 GnttabEntryCtor(
-    IN  PVOID               Argument,
-    IN  PVOID               Object
+    _In_ PVOID              Argument,
+    _In_ PVOID              Object
     )
 {
     PXENBUS_GNTTAB_CACHE    Cache = Argument;
@@ -285,8 +327,8 @@ fail1:
 
 static VOID
 GnttabEntryDtor(
-    IN  PVOID               Argument,
-    IN  PVOID               Object
+    _In_ PVOID              Argument,
+    _In_ PVOID              Object
     )
 {
     PXENBUS_GNTTAB_CACHE    Cache = Argument;
@@ -304,7 +346,7 @@ GnttabEntryDtor(
 
 static VOID
 GnttabAcquireLock(
-    IN  PVOID               Argument
+    _In_ PVOID              Argument
     )
 {
     PXENBUS_GNTTAB_CACHE    Cache = Argument;
@@ -314,7 +356,7 @@ GnttabAcquireLock(
 
 static VOID
 GnttabReleaseLock(
-    IN  PVOID               Argument
+    _In_ PVOID              Argument
     )
 {
     PXENBUS_GNTTAB_CACHE    Cache = Argument;
@@ -324,19 +366,19 @@ GnttabReleaseLock(
 
 static NTSTATUS
 GnttabCreateCache(
-    IN  PINTERFACE              Interface,
-    IN  const CHAR              *Name,
-    IN  ULONG                   Reservation,
-    IN  ULONG                   Cap,
-    IN  VOID                    (*AcquireLock)(PVOID),
-    IN  VOID                    (*ReleaseLock)(PVOID),
-    IN  PVOID                   Argument,
-    OUT PXENBUS_GNTTAB_CACHE    *Cache
+    _In_ PINTERFACE                 Interface,
+    _In_ PCSTR                      Name,
+    _In_ ULONG                      Reservation,
+    _In_ ULONG                      Cap,
+    _In_ VOID                       (*AcquireLock)(PVOID),
+    _In_ VOID                       (*ReleaseLock)(PVOID),
+    _In_ PVOID                      Argument,
+    _Outptr_ PXENBUS_GNTTAB_CACHE   *Cache
     )
 {
-    PXENBUS_GNTTAB_CONTEXT      Context = Interface->Context;
-    KIRQL                       Irql;
-    NTSTATUS                    status;
+    PXENBUS_GNTTAB_CONTEXT          Context = Interface->Context;
+    KIRQL                           Irql;
+    NTSTATUS                        status;
 
     *Cache = __GnttabAllocate(sizeof (XENBUS_GNTTAB_CACHE));
 
@@ -386,7 +428,7 @@ fail3:
     (*Cache)->AcquireLock = NULL;
 
     RtlZeroMemory((*Cache)->Name, sizeof ((*Cache)->Name));
-    
+
 fail2:
     Error("fail2\n");
 
@@ -403,13 +445,13 @@ fail1:
 
 static NTSTATUS
 GnttabCreateCacheVersion1(
-    IN  PINTERFACE              Interface,
-    IN  const CHAR              *Name,
-    IN  ULONG                   Reservation,
-    IN  VOID                    (*AcquireLock)(PVOID),
-    IN  VOID                    (*ReleaseLock)(PVOID),
-    IN  PVOID                   Argument,
-    OUT PXENBUS_GNTTAB_CACHE    *Cache
+    _In_ PINTERFACE                 Interface,
+    _In_ PCSTR                      Name,
+    _In_ ULONG                      Reservation,
+    _In_ VOID                       (*AcquireLock)(PVOID),
+    _In_ VOID                       (*ReleaseLock)(PVOID),
+    _In_ PVOID                      Argument,
+    _Outptr_ PXENBUS_GNTTAB_CACHE   *Cache
     )
 {
     return GnttabCreateCache(Interface,
@@ -424,8 +466,8 @@ GnttabCreateCacheVersion1(
 
 static VOID
 GnttabDestroyCache(
-    IN  PINTERFACE              Interface,
-    IN  PXENBUS_GNTTAB_CACHE    Cache
+    _In_ PINTERFACE             Interface,
+    _In_ PXENBUS_GNTTAB_CACHE   Cache
     )
 {
     PXENBUS_GNTTAB_CONTEXT      Context = Interface->Context;
@@ -447,7 +489,7 @@ GnttabDestroyCache(
     Cache->AcquireLock = NULL;
 
     RtlZeroMemory(Cache->Name, sizeof (Cache->Name));
-    
+
     Cache->Context = NULL;
 
     ASSERT(IsZeroMemory(Cache, sizeof (XENBUS_GNTTAB_CACHE)));
@@ -455,18 +497,20 @@ GnttabDestroyCache(
 }
 
 static NTSTATUS
-GnttabPermitForeignAccess( 
-    IN  PINTERFACE              Interface,
-    IN  PXENBUS_GNTTAB_CACHE    Cache,
-    IN  BOOLEAN                 Locked,
-    IN  USHORT                  Domain,
-    IN  PFN_NUMBER              Pfn,
-    IN  BOOLEAN                 ReadOnly,
-    OUT PXENBUS_GNTTAB_ENTRY    *Entry
+GnttabPermitForeignAccess(
+    _In_ PINTERFACE                 Interface,
+    _In_ PXENBUS_GNTTAB_CACHE       Cache,
+    _In_ BOOLEAN                    Locked,
+    _In_ USHORT                     Domain,
+    _In_ PFN_NUMBER                 Pfn,
+    _In_ BOOLEAN                    ReadOnly,
+    _Outptr_ PXENBUS_GNTTAB_ENTRY   *Entry
     )
 {
-    PXENBUS_GNTTAB_CONTEXT      Context = Interface->Context;
-    NTSTATUS                    status;
+    PXENBUS_GNTTAB_CONTEXT          Context = Interface->Context;
+    PXENBUS_GNTTAB_FRAME            Frame;
+    ULONG                           Index;
+    NTSTATUS                        status;
 
     *Entry = XENBUS_CACHE(Get,
                           &Context->CacheInterface,
@@ -477,16 +521,22 @@ GnttabPermitForeignAccess(
     if (*Entry == NULL)
         goto fail1;
 
+    ASSERT3U((*Entry)->Reference, >=, XENBUS_GNTTAB_RESERVED_ENTRY_COUNT);
+    ASSERT3U((*Entry)->Reference, <, (Context->FrameIndex + 1) * XENBUS_GNTTAB_ENTRY_PER_FRAME);
+
     (*Entry)->Entry.flags = (ReadOnly) ? GTF_readonly : 0;
     (*Entry)->Entry.domid = Domain;
 
     (*Entry)->Entry.frame = (uint32_t)Pfn;
     ASSERT3U((*Entry)->Entry.frame, ==, Pfn);
 
-    Context->Table[(*Entry)->Reference] = (*Entry)->Entry;
+    Frame = &Context->Frame[(*Entry)->Reference / XENBUS_GNTTAB_ENTRY_PER_FRAME];
+    Index = (*Entry)->Reference % XENBUS_GNTTAB_ENTRY_PER_FRAME;
+
+    Frame->Entry[Index] = (*Entry)->Entry;
     KeMemoryBarrier();
 
-    Context->Table[(*Entry)->Reference].flags |= GTF_permit_access;
+    Frame->Entry[Index].flags |= GTF_permit_access;
     KeMemoryBarrier();
 
     return STATUS_SUCCESS;
@@ -499,13 +549,15 @@ fail1:
 
 static NTSTATUS
 GnttabRevokeForeignAccess(
-    IN  PINTERFACE              Interface,
-    IN  PXENBUS_GNTTAB_CACHE    Cache,
-    IN  BOOLEAN                 Locked,
-    IN  PXENBUS_GNTTAB_ENTRY    Entry
+    _In_ PINTERFACE             Interface,
+    _In_ PXENBUS_GNTTAB_CACHE   Cache,
+    _In_ BOOLEAN                Locked,
+    _In_ PXENBUS_GNTTAB_ENTRY   Entry
     )
 {
     PXENBUS_GNTTAB_CONTEXT      Context = Interface->Context;
+    PXENBUS_GNTTAB_FRAME        Frame;
+    ULONG                       Index;
     volatile SHORT              *flags;
     ULONG                       Attempt;
     NTSTATUS                    status;
@@ -514,7 +566,10 @@ GnttabRevokeForeignAccess(
     ASSERT3U(Entry->Reference, >=, XENBUS_GNTTAB_RESERVED_ENTRY_COUNT);
     ASSERT3U(Entry->Reference, <, (Context->FrameIndex + 1) * XENBUS_GNTTAB_ENTRY_PER_FRAME);
 
-    flags = (volatile SHORT *)&Context->Table[Entry->Reference].flags;
+    Frame = &Context->Frame[Entry->Reference / XENBUS_GNTTAB_ENTRY_PER_FRAME];
+    Index = Entry->Reference % XENBUS_GNTTAB_ENTRY_PER_FRAME;
+
+    flags = (volatile SHORT *)&Frame->Entry[Index].flags;
 
     Attempt = 0;
     while (Attempt++ < 100) {
@@ -536,10 +591,8 @@ GnttabRevokeForeignAccess(
     if (Attempt == 100)
         goto fail1;
 
-    RtlZeroMemory(&Context->Table[Entry->Reference],
-                  sizeof (grant_entry_v1_t));
-    RtlZeroMemory(&Entry->Entry,
-                  sizeof (grant_entry_v1_t));
+    RtlZeroMemory(&Frame->Entry[Index], sizeof (grant_entry_v1_t));
+    RtlZeroMemory(&Entry->Entry, sizeof (grant_entry_v1_t));
 
     XENBUS_CACHE(Put,
                  &Context->CacheInterface,
@@ -557,8 +610,8 @@ fail1:
 
 static ULONG
 GnttabGetReference(
-    IN  PINTERFACE              Interface,
-    IN  PXENBUS_GNTTAB_ENTRY    Entry
+    _In_ PINTERFACE             Interface,
+    _In_ PXENBUS_GNTTAB_ENTRY   Entry
     )
 {
     UNREFERENCED_PARAMETER(Interface);
@@ -570,24 +623,29 @@ GnttabGetReference(
 
 static NTSTATUS
 GnttabQueryReference(
-    IN  PINTERFACE          Interface,
-    IN	ULONG               Reference,
-    OUT PPFN_NUMBER         Pfn OPTIONAL,
-    OUT PBOOLEAN            ReadOnly OPTIONAL
+    _In_ PINTERFACE         Interface,
+    _In_ ULONG              Reference,
+    _Out_opt_ PPFN_NUMBER   Pfn,
+    _Out_opt_ PBOOLEAN      ReadOnly
     )
 {
     PXENBUS_GNTTAB_CONTEXT  Context = Interface->Context;
+    PXENBUS_GNTTAB_FRAME    Frame;
+    ULONG                   Index;
     NTSTATUS                status;
 
     status = STATUS_INVALID_PARAMETER;
     if (Reference >= (Context->FrameIndex + 1) * XENBUS_GNTTAB_ENTRY_PER_FRAME)
         goto fail1;
 
+    Frame = &Context->Frame[Reference / XENBUS_GNTTAB_ENTRY_PER_FRAME];
+    Index = Reference % XENBUS_GNTTAB_ENTRY_PER_FRAME;
+
     if (Pfn != NULL)
-        *Pfn = Context->Table[Reference].frame;
+        *Pfn = Frame->Entry[Index].frame;
 
     if (ReadOnly != NULL)
-        *ReadOnly = (Context->Table[Reference].flags & GTF_readonly) ? TRUE : FALSE;
+        *ReadOnly = (Frame->Entry[Index].flags & GTF_readonly) ? TRUE : FALSE;
 
     return STATUS_SUCCESS;
 
@@ -599,25 +657,25 @@ fail1:
 
 static NTSTATUS
 GnttabMapForeignPages(
-    IN  PINTERFACE              Interface,
-    IN  USHORT                  Domain,
-    IN  ULONG                   NumberPages,
-    IN  PULONG                  References,
-    IN  BOOLEAN                 ReadOnly,
-    OUT PHYSICAL_ADDRESS        *Address
+    _In_ PINTERFACE             Interface,
+    _In_ USHORT                 Domain,
+    _In_ ULONG                  NumberPages,
+    _In_ PULONG                 References,
+    _In_ BOOLEAN                ReadOnly,
+    _Out_ PHYSICAL_ADDRESS      *Address
     )
 {
     PXENBUS_GNTTAB_CONTEXT      Context = Interface->Context;
+    PMDL                        Mdl;
     LONG                        PageIndex;
     PHYSICAL_ADDRESS            PageAddress;
     PXENBUS_GNTTAB_MAP_ENTRY    MapEntry;
     NTSTATUS                    status;
 
-    status = FdoAllocateHole(Context->Fdo,
-                             NumberPages,
-                             NULL,
-                             Address);
-    if (!NT_SUCCESS(status))
+    Mdl = FdoHoleAllocate(Context->Fdo, NumberPages);
+
+    status = STATUS_NO_MEMORY;
+    if (Mdl == NULL)
         goto fail1;
 
     MapEntry = __GnttabAllocate(FIELD_OFFSET(XENBUS_GNTTAB_MAP_ENTRY,
@@ -628,8 +686,10 @@ GnttabMapForeignPages(
     if (MapEntry == NULL)
         goto fail2;
 
+    MapEntry->Mdl = Mdl;
+
+    Address->QuadPart = MmGetMdlPfnArray(Mdl)[0] << PAGE_SHIFT;
     PageAddress.QuadPart = Address->QuadPart;
-    MapEntry->NumberPages = NumberPages;
 
     for (PageIndex = 0; PageIndex < (LONG)NumberPages; PageIndex++) {
         status = GrantTableMapForeignPage(Domain,
@@ -663,12 +723,14 @@ fail3:
                                           PageAddress);
     }
 
+    Address->QuadPart = 0;
+
     __GnttabFree(MapEntry);
 
 fail2:
     Error("fail2\n");
 
-    FdoFreeHole(Context->Fdo, *Address, NumberPages);
+    FdoHoleFree(Context->Fdo, Mdl);
 
 fail1:
     Error("fail1: (%08x)\n", status);
@@ -678,14 +740,16 @@ fail1:
 
 static NTSTATUS
 GnttabUnmapForeignPages(
-    IN  PINTERFACE              Interface,
-    IN  PHYSICAL_ADDRESS        Address
+    _In_ PINTERFACE             Interface,
+    _In_ PHYSICAL_ADDRESS       Address
     )
 {
     PXENBUS_GNTTAB_CONTEXT      Context = Interface->Context;
-    ULONG                       PageIndex;
+    ULONG                       NumberPages;
     PHYSICAL_ADDRESS            PageAddress;
+    ULONG                       PageIndex;
     PXENBUS_GNTTAB_MAP_ENTRY    MapEntry;
+    PMDL                        Mdl;
     NTSTATUS                    status;
 
     status = HashTableLookup(Context->MapTable,
@@ -701,7 +765,10 @@ GnttabUnmapForeignPages(
 
     PageAddress.QuadPart = Address.QuadPart;
 
-    for (PageIndex = 0; PageIndex < MapEntry->NumberPages; PageIndex++) {
+    Mdl = MapEntry->Mdl;
+    NumberPages = Mdl->ByteCount >> PAGE_SHIFT;
+
+    for (PageIndex = 0; PageIndex < NumberPages; PageIndex++) {
         status = GrantTableUnmapForeignPage(MapEntry->MapHandles[PageIndex],
                                             PageAddress);
         BUG_ON(!NT_SUCCESS(status));
@@ -709,11 +776,9 @@ GnttabUnmapForeignPages(
         PageAddress.QuadPart += PAGE_SIZE;
     }
 
-    FdoFreeHole(Context->Fdo,
-                Address,
-                MapEntry->NumberPages);
-
     __GnttabFree(MapEntry);
+
+    FdoHoleFree(Context->Fdo, Mdl);
 
     return STATUS_SUCCESS;
 
@@ -728,43 +793,45 @@ fail1:
 
 static VOID
 GnttabSuspendCallbackEarly(
-    IN  PVOID               Argument
+    _In_ PVOID              Argument
     )
 {
     PXENBUS_GNTTAB_CONTEXT  Context = Argument;
 
     GnttabMap(Context);
 }
-                     
+
 static VOID
 GnttabDebugCallback(
-    IN  PVOID               Argument,
-    IN  BOOLEAN             Crashing
+    _In_ PVOID              Argument,
+    _In_ BOOLEAN            Crashing
     )
 {
     PXENBUS_GNTTAB_CONTEXT  Context = Argument;
+    LONG                    Index;
 
     UNREFERENCED_PARAMETER(Crashing);
 
-    XENBUS_DEBUG(Printf,
-                 &Context->DebugInterface,
-                 "Address = %08x.%08x\n",
-                 Context->Address.HighPart,
-                 Context->Address.LowPart);
-    
-    XENBUS_DEBUG(Printf,
-                 &Context->DebugInterface,
-                 "FrameIndex = %d\n",
-                 Context->FrameIndex);
+    for (Index = 0; Index <= Context->FrameIndex; Index++) {
+        PXENBUS_GNTTAB_FRAME    Frame = &Context->Frame[Index];
+        PHYSICAL_ADDRESS        Address;
+
+        Address.QuadPart = MmGetMdlPfnArray(Frame->Mdl)[0] << PAGE_SHIFT;
+
+        XENBUS_DEBUG(Printf,
+                    &Context->DebugInterface,
+                     "[%u] Address = %08x.%08x\n",
+                     Address.HighPart,
+                     Address.LowPart);
+    }
 }
-                     
+
 NTSTATUS
 GnttabAcquire(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENBUS_GNTTAB_CONTEXT  Context = Interface->Context;
-    PXENBUS_FDO             Fdo = Context->Fdo;
     KIRQL                   Irql;
     NTSTATUS                status;
 
@@ -783,11 +850,10 @@ GnttabAcquire(
               "GNTTAB: MAX FRAMES = %u\n",
               Context->MaximumFrameCount);
 
-    status = FdoAllocateHole(Fdo,
-                             Context->MaximumFrameCount,
-                             &Context->Table,
-                             &Context->Address);
-    if (!NT_SUCCESS(status))
+    Context->Frame = __GnttabAllocate(Context->MaximumFrameCount * sizeof (XENBUS_GNTTAB_FRAME));
+
+    status = STATUS_NO_MEMORY;
+    if (Context->Frame == NULL)
         goto fail2;
 
     Context->FrameIndex = -1;
@@ -806,7 +872,7 @@ GnttabAcquire(
     status = XENBUS_CACHE(Acquire, &Context->CacheInterface);
     if (!NT_SUCCESS(status))
         goto fail5;
-    
+
     status = XENBUS_SUSPEND(Acquire, &Context->SuspendInterface);
     if (!NT_SUCCESS(status))
         goto fail6;
@@ -887,8 +953,6 @@ fail5:
                      Context->RangeSet);
     Context->RangeSet = NULL;
 
-    Context->FrameIndex = 0;
-
 fail4:
     Error("fail4\n");
 
@@ -897,11 +961,10 @@ fail4:
 fail3:
     Error("fail3\n");
 
-    FdoFreeHole(Fdo,
-                Context->Address,
-                Context->MaximumFrameCount);
-    Context->Address.QuadPart = 0;
-    Context->Table = NULL;
+    Context->FrameIndex = 0;
+
+    __GnttabFree(Context->Frame);
+    Context->Frame = NULL;
 
 fail2:
     Error("fail2\n");
@@ -920,11 +983,10 @@ fail1:
 
 VOID
 GnttabRelease(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENBUS_GNTTAB_CONTEXT  Context = Interface->Context;
-    PXENBUS_FDO             Fdo = Context->Fdo;
     KIRQL                   Irql;
 
     KeAcquireSpinLock(&Context->Lock, &Irql);
@@ -961,15 +1023,12 @@ GnttabRelease(
                      Context->RangeSet);
     Context->RangeSet = NULL;
 
-    Context->FrameIndex = 0;
-
     XENBUS_RANGE_SET(Release, &Context->RangeSetInterface);
 
-    FdoFreeHole(Fdo,
-                Context->Address,
-                Context->MaximumFrameCount);
-    Context->Address.QuadPart = 0;
-    Context->Table = NULL;
+    Context->FrameIndex = 0;
+
+    __GnttabFree(Context->Frame);
+    Context->Frame = NULL;
 
     Context->MaximumFrameCount = 0;
 
@@ -979,17 +1038,6 @@ done:
     KeReleaseSpinLock(&Context->Lock, Irql);
 }
 
-static struct _XENBUS_GNTTAB_INTERFACE_V1   GnttabInterfaceVersion1 = {
-    { sizeof (struct _XENBUS_GNTTAB_INTERFACE_V1), 1, NULL, NULL, NULL },
-    GnttabAcquire,
-    GnttabRelease,
-    GnttabCreateCacheVersion1,
-    GnttabPermitForeignAccess,
-    GnttabRevokeForeignAccess,
-    GnttabGetReference,
-    GnttabDestroyCache
-};
-                     
 static struct _XENBUS_GNTTAB_INTERFACE_V2   GnttabInterfaceVersion2 = {
     { sizeof (struct _XENBUS_GNTTAB_INTERFACE_V2), 2, NULL, NULL, NULL },
     GnttabAcquire,
@@ -1033,11 +1081,11 @@ static struct _XENBUS_GNTTAB_INTERFACE_V4   GnttabInterfaceVersion4 = {
 
 NTSTATUS
 GnttabInitialize(
-    IN  PXENBUS_FDO             Fdo,
-    OUT PXENBUS_GNTTAB_CONTEXT  *Context
+    _In_ PXENBUS_FDO                Fdo,
+    _Outptr_ PXENBUS_GNTTAB_CONTEXT *Context
     )
 {
-    NTSTATUS                    status;
+    NTSTATUS                        status;
 
     Trace("====>\n");
 
@@ -1091,6 +1139,9 @@ GnttabInitialize(
 fail2:
     Error("fail2\n");
 
+    __GnttabFree(*Context);
+    *Context = NULL;
+
 fail1:
     Error("fail1 (%08x)\n", status);
 
@@ -1099,34 +1150,17 @@ fail1:
 
 NTSTATUS
 GnttabGetInterface(
-    IN      PXENBUS_GNTTAB_CONTEXT  Context,
-    IN      ULONG                   Version,
-    IN OUT  PINTERFACE              Interface,
-    IN      ULONG                   Size
+    _In_ PXENBUS_GNTTAB_CONTEXT Context,
+    _In_ ULONG                  Version,
+    _Inout_ PINTERFACE          Interface,
+    _In_ ULONG                  Size
     )
 {
-    NTSTATUS                        status;
+    NTSTATUS                    status;
 
     ASSERT(Context != NULL);
 
     switch (Version) {
-    case 1: {
-        struct _XENBUS_GNTTAB_INTERFACE_V1  *GnttabInterface;
-
-        GnttabInterface = (struct _XENBUS_GNTTAB_INTERFACE_V1 *)Interface;
-
-        status = STATUS_BUFFER_OVERFLOW;
-        if (Size < sizeof (struct _XENBUS_GNTTAB_INTERFACE_V1))
-            break;
-
-        *GnttabInterface = GnttabInterfaceVersion1;
-
-        ASSERT3U(Interface->Version, ==, Version);
-        Interface->Context = Context;
-
-        status = STATUS_SUCCESS;
-        break;
-    }
     case 2: {
         struct _XENBUS_GNTTAB_INTERFACE_V2  *GnttabInterface;
 
@@ -1184,11 +1218,11 @@ GnttabGetInterface(
     }
 
     return status;
-}   
+}
 
 ULONG
 GnttabGetReferences(
-    IN  PXENBUS_GNTTAB_CONTEXT  Context
+    _In_ PXENBUS_GNTTAB_CONTEXT Context
     )
 {
     return Context->References;
@@ -1196,7 +1230,7 @@ GnttabGetReferences(
 
 VOID
 GnttabTeardown(
-    IN  PXENBUS_GNTTAB_CONTEXT  Context
+    _In_ PXENBUS_GNTTAB_CONTEXT Context
     )
 {
     Trace("====>\n");

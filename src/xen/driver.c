@@ -1,31 +1,32 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -33,6 +34,7 @@
 
 #include <ntddk.h>
 #include <procgrp.h>
+#include <ntstrsafe.h>
 #include <xen.h>
 
 #include "registry.h"
@@ -47,6 +49,7 @@
 #include "bug_check.h"
 #include "dbg_print.h"
 #include "assert.h"
+#include "util.h"
 #include "version.h"
 
 #define DEFAULT_XEN_LOG_LEVEL   LOG_LEVEL_CRITICAL
@@ -58,12 +61,33 @@
 typedef struct _XEN_DRIVER {
     PLOG_DISPOSITION    XenDisposition;
     PLOG_DISPOSITION    QemuDisposition;
+    HANDLE              ParametersKey;
     HANDLE              UnplugKey;
+    HANDLE              ForceUnplugKey;
+    HANDLE              MemoryKey;
 } XEN_DRIVER, *PXEN_DRIVER;
 
 static XEN_DRIVER   Driver;
 
+#define XEN_DRIVER_TAG  'VIRD'
+
 extern PULONG   InitSafeBootMode;
+
+static FORCEINLINE PVOID
+__DriverAllocate(
+    _In_ ULONG  Length
+    )
+{
+    return __AllocatePoolWithTag(NonPagedPool, Length, XEN_DRIVER_TAG);
+}
+
+static FORCEINLINE VOID
+__DriverFree(
+    _In_ PVOID  Buffer
+    )
+{
+    __FreePoolWithTag(Buffer, XEN_DRIVER_TAG);
+}
 
 static FORCEINLINE BOOLEAN
 __DriverSafeMode(
@@ -74,8 +98,32 @@ __DriverSafeMode(
 }
 
 static FORCEINLINE VOID
+__DriverSetParametersKey(
+    _In_opt_ HANDLE Key
+    )
+{
+    Driver.ParametersKey = Key;
+}
+
+static FORCEINLINE HANDLE
+__DriverGetParametersKey(
+    VOID
+    )
+{
+    return Driver.ParametersKey;
+}
+
+HANDLE
+DriverGetParametersKey(
+    VOID
+    )
+{
+    return __DriverGetParametersKey();
+}
+
+static FORCEINLINE VOID
 __DriverSetUnplugKey(
-    IN  HANDLE  Key
+    _In_opt_ HANDLE Key
     )
 {
     Driver.UnplugKey = Key;
@@ -97,14 +145,316 @@ DriverGetUnplugKey(
     return __DriverGetUnplugKey();
 }
 
+static FORCEINLINE VOID
+__DriverSetForceUnplugKey(
+    _In_opt_ HANDLE Key
+    )
+{
+    Driver.ForceUnplugKey = Key;
+}
+
+static FORCEINLINE HANDLE
+__DriverGetForceUnplugKey(
+    VOID
+    )
+{
+    return Driver.ForceUnplugKey;
+}
+
+HANDLE
+DriverGetForceUnplugKey(
+    VOID
+    )
+{
+    return __DriverGetForceUnplugKey();
+}
+
+static FORCEINLINE VOID
+__DriverSetMemoryKey(
+    _In_opt_ HANDLE Key
+    )
+{
+    Driver.MemoryKey = Key;
+}
+
+static FORCEINLINE HANDLE
+__DriverGetMemoryKey(
+    VOID
+    )
+{
+    return Driver.MemoryKey;
+}
+
+#define MAXNAMELEN 128
+
+static FORCEINLINE NTSTATUS
+__DriverSetPfnArray(
+    _In_ PSTR                       Name,
+    _In_ ULONG                      Count,
+    _In_reads_(Count) PFN_NUMBER    PfnArray[]
+    )
+{
+    HANDLE                          Key = __DriverGetMemoryKey();
+    LONG                            Index;
+    NTSTATUS                        status;
+
+    Index = 0;
+    while (Index < (LONG)Count) {
+        CHAR    ValueName[MAXNAMELEN];
+        PVOID   Value;
+        ULONG   Length;
+
+        status = RtlStringCbPrintfA(ValueName,
+                                    MAXNAMELEN,
+                                    "%s_%u",
+                                    Name,
+                                    Index);
+        ASSERT(NT_SUCCESS(status));
+
+        Value = &PfnArray[Index];
+        Length = sizeof (PFN_NUMBER);
+
+        status = RegistryUpdateBinaryValue(Key,
+                                           ValueName,
+                                           Value,
+                                           Length);
+        if (!NT_SUCCESS(status))
+            goto fail1;
+
+        Info("%s %p\n", ValueName, (PVOID)PfnArray[Index]);
+
+        Index++;
+    }
+
+    return STATUS_SUCCESS;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    while (--Index >= 0) {
+        CHAR    ValueName[MAXNAMELEN];
+
+        status = RtlStringCbPrintfA(ValueName,
+                                    MAXNAMELEN,
+                                    "%s_%u",
+                                    Name,
+                                    Index);
+        ASSERT(NT_SUCCESS(status));
+
+        (VOID) RegistryDeleteValue(Key, ValueName);
+    }
+
+    return status;
+}
+
+static FORCEINLINE NTSTATUS
+__DriverAllocatePfnArray(
+    _In_ PSTR                           Name,
+    _In_ ULONG                          Count,
+    _Out_writes_all_(Count) PFN_NUMBER  PfnArray[]
+    )
+{
+    PHYSICAL_ADDRESS                    LowAddress;
+    PHYSICAL_ADDRESS                    HighAddress;
+    LARGE_INTEGER                       SkipBytes;
+    SIZE_T                              TotalBytes;
+    PMDL                                Mdl;
+    NTSTATUS                            status;
+
+    LowAddress.QuadPart = 0ull;
+    HighAddress.QuadPart = ~0ull;
+    SkipBytes.QuadPart = 0ull;
+    TotalBytes = PAGE_SIZE * Count;
+
+    Mdl = MmAllocatePagesForMdlEx(LowAddress,
+                                  HighAddress,
+                                  SkipBytes,
+                                  TotalBytes,
+                                  MmCached,
+                                  MM_ALLOCATE_FULLY_REQUIRED);
+
+    status = STATUS_NO_MEMORY;
+    if (Mdl == NULL)
+        goto fail1;
+
+    if (Mdl->ByteCount < TotalBytes)
+        goto fail2;
+
+    ASSERT((Mdl->MdlFlags & (MDL_MAPPED_TO_SYSTEM_VA |
+                             MDL_PARTIAL_HAS_BEEN_MAPPED |
+                             MDL_PARTIAL |
+                             MDL_PARENT_MAPPED_SYSTEM_VA |
+                             MDL_SOURCE_IS_NONPAGED_POOL |
+                             MDL_IO_SPACE)) == 0);
+
+    status = __DriverSetPfnArray(Name, Count, MmGetMdlPfnArray(Mdl));
+    if (!NT_SUCCESS(status))
+        goto fail3;
+
+    RtlCopyMemory(PfnArray, MmGetMdlPfnArray(Mdl), sizeof (PFN_NUMBER) * Count);
+
+    ExFreePool(Mdl);
+
+    return STATUS_SUCCESS;
+
+fail3:
+    Error("fail3\n");
+
+fail2:
+    Error("fail2\n");
+
+    MmFreePagesFromMdl(Mdl);
+    ExFreePool(Mdl);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+static FORCEINLINE NTSTATUS
+__DriverGetPfnArray(
+    _In_ PSTR                           Name,
+    _In_ ULONG                          Count,
+    _Out_writes_all_(Count) PFN_NUMBER  PfnArray[]
+    )
+{
+    HANDLE                              Key = __DriverGetMemoryKey();
+    ULONG                               Index;
+    NTSTATUS                            status;
+
+    for (Index = 0; Index < Count; Index++) {
+        CHAR    ValueName[MAXNAMELEN];
+        PVOID   Value;
+        ULONG   Length;
+
+        status = RtlStringCbPrintfA(ValueName,
+                                    MAXNAMELEN,
+                                    "%s_%u",
+                                    Name,
+                                    Index);
+        ASSERT(NT_SUCCESS(status));
+
+        status = RegistryQueryBinaryValue(Key,
+                                          ValueName,
+                                          &Value,
+                                          &Length);
+        if (!NT_SUCCESS(status))
+            goto fail1;
+
+        status = STATUS_UNSUCCESSFUL;
+        if (Length != sizeof (PFN_NUMBER))
+            goto fail2;
+
+        PfnArray[Index] = *(PPFN_NUMBER)Value;
+
+        RegistryFreeBinaryValue(Value);
+
+        Info("%s %p\n", Name, (PVOID)PfnArray[Index]);
+    }
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return status;
+}
+
+PMDL
+DriverGetNamedPages(
+    _In_ PSTR   Name,
+    _In_ ULONG  Count
+    )
+{
+    ULONG       Size;
+    PMDL        Mdl;
+    PUCHAR      MdlMappedSystemVa;
+    NTSTATUS    status;
+
+    Size = sizeof (MDL) + (sizeof (PFN_NUMBER) * Count);
+    Mdl = __DriverAllocate(Size);
+
+    status = STATUS_NO_MEMORY;
+    if (Mdl == NULL)
+        goto fail1;
+
+#pragma warning(push)
+#pragma warning(disable:28145) // modifying struct MDL
+
+    Mdl->Size = (USHORT)Size;
+    Mdl->MdlFlags = MDL_PAGES_LOCKED;
+    Mdl->ByteCount = PAGE_SIZE * Count;
+
+#pragma warning(pop)
+
+    status = __DriverGetPfnArray(Name, Count, MmGetMdlPfnArray(Mdl));
+    if (!NT_SUCCESS(status)) {
+        if (status == STATUS_OBJECT_NAME_NOT_FOUND)
+            status = __DriverAllocatePfnArray(Name, Count,
+                                              MmGetMdlPfnArray(Mdl));
+
+        if (!NT_SUCCESS(status))
+            goto fail2;
+    }
+
+    MdlMappedSystemVa = MmMapLockedPagesSpecifyCache(Mdl,
+                                                     KernelMode,
+                                                     MmCached,
+                                                     NULL,
+                                                     FALSE,
+                                                     NormalPagePriority);
+
+    status = STATUS_UNSUCCESSFUL;
+    if (MdlMappedSystemVa == NULL)
+        goto fail3;
+
+    Mdl->StartVa = PAGE_ALIGN(MdlMappedSystemVa);
+
+    return Mdl;
+
+fail3:
+    Error("fail3\n");
+
+fail2:
+    Error("fail2\n");
+
+    __DriverFree(Mdl);
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return NULL;
+}
+
+VOID
+DriverPutNamedPages(
+    _In_ PMDL   Mdl
+    )
+{
+    PUCHAR	    MdlMappedSystemVa;
+
+    ASSERT(Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA);
+    MdlMappedSystemVa = Mdl->MappedSystemVa;
+
+    MmUnmapLockedPages(MdlMappedSystemVa, Mdl);
+
+    // DO NOT FREE PAGES
+
+    __DriverFree(Mdl);
+}
+
 XEN_API
 NTSTATUS
 XenTouch(
-    IN  const CHAR  *Name,
-    IN  ULONG       MajorVersion,
-    IN  ULONG       MinorVersion,
-    IN  ULONG       MicroVersion,
-    IN  ULONG       BuildNumber
+    _In_ PCSTR      Name,
+    _In_ ULONG      MajorVersion,
+    _In_ ULONG      MinorVersion,
+    _In_ ULONG      MicroVersion,
+    _In_ ULONG      BuildNumber
    )
 {
     static ULONG    Reference;
@@ -154,9 +504,9 @@ fail1:
 
 static VOID
 DriverOutputBuffer(
-    IN  PVOID   Argument,
-    IN  PCHAR   Buffer,
-    IN  ULONG   Length
+    _In_ PVOID  Argument,
+    _In_ PSTR   Buffer,
+    _In_ ULONG  Length
     )
 {
     ULONG_PTR   Port = (ULONG_PTR)Argument;
@@ -169,14 +519,16 @@ DriverOutputBuffer(
 
 NTSTATUS
 DllInitialize(
-    IN  PUNICODE_STRING RegistryPath
+    _In_ PUNICODE_STRING    RegistryPath
     )
 {
-    HANDLE              ServiceKey;
-    HANDLE              UnplugKey;
-    HANDLE              ParametersKey;
-    LOG_LEVEL           LogLevel;
-    NTSTATUS            status;
+    HANDLE                  ServiceKey;
+    HANDLE                  ParametersKey;
+    HANDLE                  UnplugKey;
+    HANDLE                  ForceUnplugKey;
+    HANDLE                  MemoryKey;
+    LOG_LEVEL               LogLevel;
+    NTSTATUS                status;
 
     ExInitializeDriverRuntime(DrvRtPoolNxOptIn);
     WdmlibProcgrpInitialize();
@@ -189,7 +541,7 @@ DllInitialize(
     if (!NT_SUCCESS(status))
         goto fail1;
 
-    status = RegistryInitialize(RegistryPath);
+    status = RegistryInitialize(NULL, RegistryPath);
     if (!NT_SUCCESS(status))
         goto fail2;
 
@@ -198,11 +550,13 @@ DllInitialize(
         goto fail3;
 
     status = RegistryCreateSubKey(ServiceKey,
-                                "Parameters",
-                                REG_OPTION_NON_VOLATILE,
-                                &ParametersKey);
+                                  "Parameters",
+                                  REG_OPTION_NON_VOLATILE,
+                                  &ParametersKey);
     if (!NT_SUCCESS(status))
         goto fail4;
+
+    __DriverSetParametersKey(ParametersKey);
 
     status = LogReadLogLevel(ParametersKey,
                              "XenLogLevel",
@@ -249,33 +603,49 @@ DllInitialize(
 
     __DriverSetUnplugKey(UnplugKey);
 
-    status = AcpiInitialize();
+    status = RegistryCreateSubKey(ServiceKey,
+                                  "ForceUnplug",
+                                  REG_OPTION_NON_VOLATILE,
+                                  &ForceUnplugKey);
     if (!NT_SUCCESS(status))
         goto fail6;
 
-    status = SystemInitialize();
+    __DriverSetForceUnplugKey(ForceUnplugKey);
+
+    status = RegistryCreateSubKey(ServiceKey,
+                                  "Memory",
+                                  REG_OPTION_VOLATILE,
+                                  &MemoryKey);
     if (!NT_SUCCESS(status))
         goto fail7;
 
+    __DriverSetMemoryKey(MemoryKey);
+
     HypercallInitialize();
 
-    status = BugCheckInitialize();
+    status = AcpiInitialize();
     if (!NT_SUCCESS(status))
         goto fail8;
 
-    status = ModuleInitialize();
+    status = SystemInitialize();
     if (!NT_SUCCESS(status))
         goto fail9;
 
-    status = ProcessInitialize();
+    status = BugCheckInitialize();
     if (!NT_SUCCESS(status))
         goto fail10;
 
-    status = UnplugInitialize();
+    status = ModuleInitialize();
     if (!NT_SUCCESS(status))
         goto fail11;
 
-    RegistryCloseKey(ParametersKey);
+    status = ProcessInitialize();
+    if (!NT_SUCCESS(status))
+        goto fail12;
+
+    status = UnplugInitialize();
+    if (!NT_SUCCESS(status))
+        goto fail13;
 
     RegistryCloseKey(ServiceKey);
 
@@ -283,32 +653,44 @@ DllInitialize(
 
     return STATUS_SUCCESS;
 
+fail13:
+    Error("fail13\n");
+
+    ProcessTeardown();
+
+fail12:
+    Error("fail12\n");
+
+    ModuleTeardown();
+
 fail11:
     Error("fail11\n");
 
-    ProcessTeardown();
+    BugCheckTeardown();
 
 fail10:
     Error("fail10\n");
 
-    ModuleTeardown();
+    SystemTeardown();
 
 fail9:
     Error("fail9\n");
 
-    BugCheckTeardown();
-
-    HypercallTeardown();
+    AcpiTeardown();
 
 fail8:
     Error("fail8\n");
 
-    SystemTeardown();
+    HypercallTeardown();
+
+    RegistryCloseKey(MemoryKey);
+    __DriverSetMemoryKey(NULL);
 
 fail7:
     Error("fail7\n");
 
-    AcpiTeardown();
+    RegistryCloseKey(ForceUnplugKey);
+    __DriverSetForceUnplugKey(NULL);
 
 fail6:
     Error("fail6\n");
@@ -326,6 +708,7 @@ fail5:
     Driver.XenDisposition = NULL;
 
     RegistryCloseKey(ParametersKey);
+    __DriverSetParametersKey(NULL);
 
 fail4:
     Error("fail4\n");
@@ -355,7 +738,10 @@ DllUnload(
     VOID
     )
 {
+    HANDLE  MemoryKey;
+    HANDLE  ForceUnplugKey;
     HANDLE  UnplugKey;
+    HANDLE  ParametersKey;
 
     Trace("====>\n");
 
@@ -367,14 +753,31 @@ DllUnload(
 
     BugCheckTeardown();
 
+    SystemTeardown();
+
+    AcpiTeardown();
+
     HypercallTeardown();
 
-    SystemTeardown();
+    MemoryKey = __DriverGetMemoryKey();
+
+    RegistryCloseKey(MemoryKey);
+    __DriverSetMemoryKey(NULL);
+
+    ForceUnplugKey = __DriverGetForceUnplugKey();
+
+    RegistryCloseKey(ForceUnplugKey);
+    __DriverSetForceUnplugKey(NULL);
 
     UnplugKey = __DriverGetUnplugKey();
 
     RegistryCloseKey(UnplugKey);
     __DriverSetUnplugKey(NULL);
+
+    ParametersKey = __DriverGetParametersKey();
+
+    RegistryCloseKey(ParametersKey);
+    __DriverSetParametersKey(NULL);
 
     RegistryTeardown();
 
@@ -406,8 +809,8 @@ DRIVER_INITIALIZE   DriverEntry;
 
 NTSTATUS
 DriverEntry(
-    IN  PDRIVER_OBJECT  DriverObject,
-    IN  PUNICODE_STRING RegistryPath
+    _In_ PDRIVER_OBJECT     DriverObject,
+    _In_ PUNICODE_STRING    RegistryPath
     )
 {
     UNREFERENCED_PARAMETER(DriverObject);

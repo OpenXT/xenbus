@@ -1,31 +1,32 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -57,14 +58,14 @@
 struct _XENBUS_PDO {
     PXENBUS_DX                  Dx;
 
-    PXENBUS_THREAD              SystemPowerThread;
+    PIO_WORKITEM                SystemPowerWorkItem;
     PIRP                        SystemPowerIrp;
-    PXENBUS_THREAD              DevicePowerThread;
+    PIO_WORKITEM                DevicePowerWorkItem;
     PIRP                        DevicePowerIrp;
 
     PXENBUS_FDO                 Fdo;
     BOOLEAN                     Missing;
-    const CHAR                  *Reason;
+    PCSTR                       Reason;
 
     BOOLEAN                     Removable;
     BOOLEAN                     Ejectable;
@@ -77,7 +78,7 @@ struct _XENBUS_PDO {
 
 static FORCEINLINE PVOID
 __PdoAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, PDO_TAG);
@@ -85,7 +86,7 @@ __PdoAllocate(
 
 static FORCEINLINE VOID
 __PdoFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, PDO_TAG);
@@ -93,8 +94,8 @@ __PdoFree(
 
 static FORCEINLINE VOID
 __PdoSetDevicePnpState(
-    IN  PXENBUS_PDO         Pdo,
-    IN  DEVICE_PNP_STATE    State
+    _In_ PXENBUS_PDO        Pdo,
+    _In_ DEVICE_PNP_STATE   State
     )
 {
     PXENBUS_DX              Dx = Pdo->Dx;
@@ -108,8 +109,8 @@ __PdoSetDevicePnpState(
 
 VOID
 PdoSetDevicePnpState(
-    IN  PXENBUS_PDO         Pdo,
-    IN  DEVICE_PNP_STATE    State
+    _In_ PXENBUS_PDO        Pdo,
+    _In_ DEVICE_PNP_STATE   State
     )
 {
     __PdoSetDevicePnpState(Pdo, State);
@@ -117,8 +118,8 @@ PdoSetDevicePnpState(
 
 static FORCEINLINE VOID
 __PdoRestoreDevicePnpState(
-    IN  PXENBUS_PDO         Pdo,
-    IN  DEVICE_PNP_STATE    State
+    _In_ PXENBUS_PDO        Pdo,
+    _In_ DEVICE_PNP_STATE   State
     )
 {
     PXENBUS_DX              Dx = Pdo->Dx;
@@ -129,7 +130,7 @@ __PdoRestoreDevicePnpState(
 
 static FORCEINLINE DEVICE_PNP_STATE
 __PdoGetDevicePnpState(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     PXENBUS_DX      Dx = Pdo->Dx;
@@ -139,7 +140,7 @@ __PdoGetDevicePnpState(
 
 DEVICE_PNP_STATE
 PdoGetDevicePnpState(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     return __PdoGetDevicePnpState(Pdo);
@@ -147,8 +148,8 @@ PdoGetDevicePnpState(
 
 static FORCEINLINE VOID
 __PdoSetDevicePowerState(
-    IN  PXENBUS_PDO         Pdo,
-    IN  DEVICE_POWER_STATE  State
+    _In_ PXENBUS_PDO        Pdo,
+    _In_ DEVICE_POWER_STATE State
     )
 {
     PXENBUS_DX              Dx = Pdo->Dx;
@@ -158,18 +159,18 @@ __PdoSetDevicePowerState(
 
 static FORCEINLINE DEVICE_POWER_STATE
 __PdoGetDevicePowerState(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
-    PXENBUS_DX      Dx = Pdo->Dx;
+    PXENBUS_DX          Dx = Pdo->Dx;
 
     return Dx->DevicePowerState;
 }
 
 static FORCEINLINE VOID
 __PdoSetSystemPowerState(
-    IN  PXENBUS_PDO         Pdo,
-    IN  SYSTEM_POWER_STATE  State
+    _In_ PXENBUS_PDO        Pdo,
+    _In_ SYSTEM_POWER_STATE State
     )
 {
     PXENBUS_DX              Dx = Pdo->Dx;
@@ -179,18 +180,18 @@ __PdoSetSystemPowerState(
 
 static FORCEINLINE SYSTEM_POWER_STATE
 __PdoGetSystemPowerState(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
-    PXENBUS_DX      Dx = Pdo->Dx;
+    PXENBUS_DX          Dx = Pdo->Dx;
 
     return Dx->SystemPowerState;
 }
 
 static FORCEINLINE VOID
 __PdoSetMissing(
-    IN  PXENBUS_PDO Pdo,
-    IN  const CHAR  *Reason
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PCSTR          Reason
     )
 {
     Pdo->Reason = Reason;
@@ -199,8 +200,8 @@ __PdoSetMissing(
 
 VOID
 PdoSetMissing(
-    IN  PXENBUS_PDO Pdo,
-    IN  const CHAR  *Reason
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PCSTR          Reason
     )
 {
     __PdoSetMissing(Pdo, Reason);
@@ -208,7 +209,7 @@ PdoSetMissing(
 
 static FORCEINLINE BOOLEAN
 __PdoIsMissing(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     return Pdo->Missing;
@@ -216,7 +217,7 @@ __PdoIsMissing(
 
 BOOLEAN
 PdoIsMissing(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     return __PdoIsMissing(Pdo);
@@ -224,8 +225,8 @@ PdoIsMissing(
 
 static FORCEINLINE VOID
 __PdoSetName(
-    IN  PXENBUS_PDO     Pdo,
-    IN  PANSI_STRING    Name
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PANSI_STRING   Name
     )
 {
     PXENBUS_DX          Dx = Pdo->Dx;
@@ -238,19 +239,19 @@ __PdoSetName(
     ASSERT(NT_SUCCESS(status));
 }
 
-static FORCEINLINE PCHAR
+static FORCEINLINE PSTR
 __PdoGetName(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
-    PXENBUS_DX      Dx = Pdo->Dx;
+    PXENBUS_DX          Dx = Pdo->Dx;
 
     return Dx->Name;
 }
 
-PCHAR
+PSTR
 PdoGetName(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     return __PdoGetName(Pdo);
@@ -258,7 +259,7 @@ PdoGetName(
 
 static FORCEINLINE VOID
 __PdoSetRemovable(
-    IN  PXENBUS_PDO     Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     HANDLE              ParametersKey;
@@ -289,7 +290,7 @@ done:
 
 static FORCEINLINE BOOLEAN
 __PdoIsRemovable(
-    IN  PXENBUS_PDO     Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     return Pdo->Removable;
@@ -297,7 +298,7 @@ __PdoIsRemovable(
 
 static FORCEINLINE VOID
 __PdoSetEjectable(
-    IN  PXENBUS_PDO     Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     HANDLE              ParametersKey;
@@ -328,7 +329,7 @@ done:
 
 static FORCEINLINE BOOLEAN
 __PdoIsEjectable(
-    IN  PXENBUS_PDO     Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     return Pdo->Ejectable;
@@ -338,7 +339,7 @@ __PdoIsEjectable(
 
 static FORCEINLINE PXENBUS_FDO
 __PdoGetFdo(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     return Pdo->Fdo;
@@ -346,7 +347,7 @@ __PdoGetFdo(
 
 PXENBUS_FDO
 PdoGetFdo(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     return __PdoGetFdo(Pdo);
@@ -378,10 +379,10 @@ static XENBUS_PDO_REVISION PdoRevision[] = {
 
 static VOID
 PdoDumpRevisions(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
-    ULONG           Index;
+    ULONG               Index;
 
     UNREFERENCED_PARAMETER(Pdo);
 
@@ -474,25 +475,25 @@ PdoDumpRevisions(
 
 static FORCEINLINE PDEVICE_OBJECT
 __PdoGetDeviceObject(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
-    PXENBUS_DX      Dx = Pdo->Dx;
+    PXENBUS_DX          Dx = Pdo->Dx;
 
     return (Dx->DeviceObject);
 }
-    
+
 PDEVICE_OBJECT
 PdoGetDeviceObject(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     return __PdoGetDeviceObject(Pdo);
 }
 
-static FORCEINLINE PCHAR
+static FORCEINLINE PSTR
 __PdoGetVendorName(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     return FdoGetVendorName(__PdoGetFdo(Pdo));
@@ -500,9 +501,9 @@ __PdoGetVendorName(
 
 PDMA_ADAPTER
 PdoGetDmaAdapter(
-    IN  PXENBUS_PDO         Pdo,
-    IN  PDEVICE_DESCRIPTION DeviceDescriptor,
-    OUT PULONG              NumberOfMapRegisters
+    _In_ PXENBUS_PDO            Pdo,
+    _In_ PDEVICE_DESCRIPTION    DeviceDescriptor,
+    _Out_ PULONG                NumberOfMapRegisters
     )
 {
     Trace("<===>\n");
@@ -514,11 +515,11 @@ PdoGetDmaAdapter(
 
 BOOLEAN
 PdoTranslateBusAddress(
-    IN      PXENBUS_PDO         Pdo,
-    IN      PHYSICAL_ADDRESS    BusAddress,
-    IN      ULONG               Length,
-    IN OUT  PULONG              AddressSpace,
-    OUT     PPHYSICAL_ADDRESS   TranslatedAddress
+    _In_ PXENBUS_PDO        Pdo,
+    _In_ PHYSICAL_ADDRESS   BusAddress,
+    _In_ ULONG              Length,
+    _Out_ PULONG            AddressSpace,
+    _Out_ PPHYSICAL_ADDRESS TranslatedAddress
     )
 {
     Trace("<===>\n");
@@ -532,11 +533,11 @@ PdoTranslateBusAddress(
 
 ULONG
 PdoSetBusData(
-    IN  PXENBUS_PDO     Pdo,
-    IN  ULONG           DataType,
-    IN  PVOID           Buffer,
-    IN  ULONG           Offset,
-    IN  ULONG           Length
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ ULONG          DataType,
+    _In_ PVOID          Buffer,
+    _In_ ULONG          Offset,
+    _In_ ULONG          Length
     )
 {
     Trace("<===>\n");
@@ -550,11 +551,11 @@ PdoSetBusData(
 
 ULONG
 PdoGetBusData(
-    IN  PXENBUS_PDO     Pdo,
-    IN  ULONG           DataType,
-    IN  PVOID           Buffer,
-    IN  ULONG           Offset,
-    IN  ULONG           Length
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ ULONG          DataType,
+    _In_ PVOID          Buffer,
+    _In_ ULONG          Offset,
+    _In_ ULONG          Length
     )
 {
     Trace("<===>\n");
@@ -568,7 +569,7 @@ PdoGetBusData(
 
 static FORCEINLINE VOID
 __PdoD3ToD0(
-    IN  PXENBUS_PDO     Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     POWER_STATE         PowerState;
@@ -590,7 +591,7 @@ __PdoD3ToD0(
 
 static FORCEINLINE VOID
 __PdoD0ToD3(
-    IN  PXENBUS_PDO     Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     POWER_STATE         PowerState;
@@ -612,7 +613,7 @@ __PdoD0ToD3(
 
 static VOID
 PdoSuspendCallbackLate(
-    IN  PVOID   Argument
+    _In_ PVOID  Argument
     )
 {
     PXENBUS_PDO Pdo = Argument;
@@ -624,11 +625,11 @@ PdoSuspendCallbackLate(
 // This function must not touch pageable code or data
 static NTSTATUS
 PdoD3ToD0(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
-    KIRQL           Irql;
-    NTSTATUS        status;
+    KIRQL               Irql;
+    NTSTATUS            status;
 
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
 
@@ -671,10 +672,10 @@ fail1:
 // This function must not touch pageable code or data
 static VOID
 PdoD0ToD3(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
-    KIRQL           Irql;
+    KIRQL               Irql;
 
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
 
@@ -695,7 +696,7 @@ PdoD0ToD3(
 // This function must not touch pageable code or data
 static VOID
 PdoS4ToS3(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     Trace("(%s) ====>\n", __PdoGetName(Pdo));
@@ -711,7 +712,7 @@ PdoS4ToS3(
 // This function must not touch pageable code or data
 static VOID
 PdoS3ToS4(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     Trace("(%s) ====>\n", __PdoGetName(Pdo));
@@ -726,8 +727,8 @@ PdoS3ToS4(
 
 static NTSTATUS
 PdoStartDevice(
-    IN  PXENBUS_PDO     Pdo,
-    IN  PIRP            Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
     NTSTATUS            status;
@@ -745,11 +746,11 @@ PdoStartDevice(
 
 static NTSTATUS
 PdoQueryStopDevice(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
-    NTSTATUS        status;
+    NTSTATUS            status;
 
     __PdoSetDevicePnpState(Pdo, StopPending);
     status = STATUS_SUCCESS;
@@ -762,8 +763,8 @@ PdoQueryStopDevice(
 
 static NTSTATUS
 PdoCancelStopDevice(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP       Irp
     )
 {
     NTSTATUS        status;
@@ -779,11 +780,11 @@ PdoCancelStopDevice(
 
 static NTSTATUS
 PdoStopDevice(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
-    NTSTATUS        status;
+    NTSTATUS            status;
 
     PdoD0ToD3(Pdo);
 
@@ -798,11 +799,11 @@ PdoStopDevice(
 
 static NTSTATUS
 PdoQueryRemoveDevice(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
-    NTSTATUS        status;
+    NTSTATUS            status;
 
     __PdoSetDevicePnpState(Pdo, RemovePending);
     status = STATUS_SUCCESS;
@@ -815,11 +816,11 @@ PdoQueryRemoveDevice(
 
 static NTSTATUS
 PdoCancelRemoveDevice(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
-    NTSTATUS        status;
+    NTSTATUS            status;
 
     __PdoRestoreDevicePnpState(Pdo, RemovePending);
     status = STATUS_SUCCESS;
@@ -832,11 +833,11 @@ PdoCancelRemoveDevice(
 
 static NTSTATUS
 PdoSurpriseRemoval(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
-    NTSTATUS        status;
+    NTSTATUS            status;
 
     Warning("%s\n", __PdoGetName(Pdo));
 
@@ -851,13 +852,13 @@ PdoSurpriseRemoval(
 
 static NTSTATUS
 PdoRemoveDevice(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
-    PXENBUS_FDO     Fdo = __PdoGetFdo(Pdo);
-    BOOLEAN         NeedInvalidate;
-    NTSTATUS        status;
+    PXENBUS_FDO         Fdo = __PdoGetFdo(Pdo);
+    BOOLEAN             NeedInvalidate;
+    NTSTATUS            status;
 
     if (__PdoGetDevicePowerState(Pdo) != PowerDeviceD0)
         goto done;
@@ -898,8 +899,8 @@ done:
 
 static NTSTATUS
 PdoQueryDeviceRelations(
-    IN  PXENBUS_PDO     Pdo,
-    IN  PIRP            Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
     PIO_STACK_LOCATION  StackLocation;
@@ -935,8 +936,8 @@ done:
 
 static FORCEINLINE NTSTATUS
 __PdoDelegateIrp(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
     return FdoDelegateIrp(__PdoGetFdo(Pdo), Irp);
@@ -944,8 +945,8 @@ __PdoDelegateIrp(
 
 static NTSTATUS
 PdoDelegateIrp(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
     return __PdoDelegateIrp(Pdo, Irp);
@@ -953,8 +954,8 @@ PdoDelegateIrp(
 
 static NTSTATUS
 PdoQueryBusInterface(
-    IN  PXENBUS_PDO         Pdo,
-    IN  PIRP                Irp
+    _In_ PXENBUS_PDO        Pdo,
+    _In_ PIRP               Irp
     )
 {
     PIO_STACK_LOCATION      StackLocation;
@@ -963,7 +964,7 @@ PdoQueryBusInterface(
     PBUS_INTERFACE_STANDARD BusInterface;
     NTSTATUS                status;
 
-    status = Irp->IoStatus.Status;        
+    status = Irp->IoStatus.Status;
 
     StackLocation = IoGetCurrentIrpStackLocation(Irp);
     Size = StackLocation->Parameters.QueryInterface.Size;
@@ -973,7 +974,7 @@ PdoQueryBusInterface(
     if (Version != 1)
         goto done;
 
-    status = STATUS_BUFFER_TOO_SMALL;        
+    status = STATUS_BUFFER_TOO_SMALL;
     if (Size < sizeof (BUS_INTERFACE_STANDARD))
         goto done;
 
@@ -990,8 +991,8 @@ done:
 #define DEFINE_PDO_QUERY_INTERFACE(_Interface)                      \
 static NTSTATUS                                                     \
 PdoQuery ## _Interface ## Interface(                                \
-    IN  PXENBUS_PDO     Pdo,                                        \
-    IN  PIRP            Irp                                         \
+    _In_ PXENBUS_PDO    Pdo,                                        \
+    _In_ PIRP           Irp                                         \
     )                                                               \
 {                                                                   \
     PIO_STACK_LOCATION  StackLocation;                              \
@@ -1037,7 +1038,7 @@ DEFINE_PDO_QUERY_INTERFACE(Console)
 
 struct _INTERFACE_ENTRY {
     const GUID  *Guid;
-    const CHAR  *Name;
+    PCSTR       Name;
     NTSTATUS    (*Query)(PXENBUS_PDO, PIRP);
 };
 
@@ -1059,8 +1060,8 @@ static struct _INTERFACE_ENTRY PdoInterfaceTable[] = {
 
 static NTSTATUS
 PdoQueryInterface(
-    IN  PXENBUS_PDO         Pdo,
-    IN  PIRP                Irp
+    _In_ PXENBUS_PDO        Pdo,
+    _In_ PIRP               Irp
     )
 {
     PIO_STACK_LOCATION      StackLocation;
@@ -1098,8 +1099,8 @@ done:
 
 static NTSTATUS
 PdoQueryCapabilities(
-    IN  PXENBUS_PDO         Pdo,
-    IN  PIRP                Irp
+    _In_ PXENBUS_PDO        Pdo,
+    _In_ PIRP               Irp
     )
 {
     PIO_STACK_LOCATION      StackLocation;
@@ -1167,8 +1168,8 @@ done:
 
 static NTSTATUS
 PdoQueryResourceRequirements(
-    IN  PXENBUS_PDO                 Pdo,
-    IN  PIRP                        Irp
+    _In_ PXENBUS_PDO                Pdo,
+    _In_ PIRP                       Irp
     )
 {
     IO_RESOURCE_DESCRIPTOR          Memory;
@@ -1244,12 +1245,12 @@ fail1:
 
 static NTSTATUS
 PdoQueryDeviceText(
-    IN  PXENBUS_PDO     Pdo,
-    IN  PIRP            Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
     PIO_STACK_LOCATION  StackLocation;
-    PWCHAR              Buffer;
+    PWSTR               Buffer;
     UNICODE_STRING      Text;
     NTSTATUS            status;
 
@@ -1325,8 +1326,8 @@ done:
 
 static NTSTATUS
 PdoReadConfig(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
     UNREFERENCED_PARAMETER(Pdo);
@@ -1339,8 +1340,8 @@ PdoReadConfig(
 
 static NTSTATUS
 PdoWriteConfig(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
     UNREFERENCED_PARAMETER(Pdo);
@@ -1355,12 +1356,12 @@ PdoWriteConfig(
 
 static NTSTATUS
 PdoQueryId(
-    IN  PXENBUS_PDO     Pdo,
-    IN  PIRP            Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
     PIO_STACK_LOCATION  StackLocation;
-    PWCHAR              Buffer;
+    PWSTR               Buffer;
     UNICODE_STRING      Id;
     ULONG               Type;
     NTSTATUS            status;
@@ -1415,19 +1416,12 @@ PdoQueryId(
         break;
 
     case BusQueryDeviceID: {
-        ULONG                   Index;
-        PXENBUS_PDO_REVISION    Revision;
-
         Type = REG_SZ;
-        Index = ARRAYSIZE(PdoRevision) - 1;
-        Revision = &PdoRevision[Index];
 
         status = RtlStringCbPrintfW(Buffer,
                                     Id.MaximumLength,
-                                    L"XENBUS\\VEN_%hs&DEV_%hs&REV_%08X",
-                                    __PdoGetVendorName(Pdo),
-                                    __PdoGetName(Pdo),
-                                    Revision->Number);
+                                    L"XENBUS\\VEN_" VENDOR_PREFIX_STR "&DEV_%hs",
+                                    __PdoGetName(Pdo));
         ASSERT(NT_SUCCESS(status));
 
         Buffer += wcslen(Buffer);
@@ -1455,11 +1449,11 @@ PdoQueryId(
                                         Revision->Number);
             ASSERT(NT_SUCCESS(status));
 
-            Buffer += wcslen(Buffer);
             Length -= (ULONG)(wcslen(Buffer) * sizeof (WCHAR));
+            Buffer += wcslen(Buffer);
 
-            Buffer++;
             Length -= sizeof (WCHAR);
+            Buffer++;
 
             --Index;
         }
@@ -1518,8 +1512,8 @@ done:
 
 static NTSTATUS
 PdoQueryBusInformation(
-    IN  PXENBUS_PDO         Pdo,
-    IN  PIRP                Irp
+    _In_ PXENBUS_PDO        Pdo,
+    _In_ PIRP               Irp
     )
 {
     PPNP_BUS_INFORMATION    Info;
@@ -1549,11 +1543,11 @@ done:
 
 static NTSTATUS
 PdoDeviceUsageNotification(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
-    NTSTATUS        status;
+    NTSTATUS            status;
 
     status = __PdoDelegateIrp(Pdo, Irp);
 
@@ -1565,8 +1559,8 @@ PdoDeviceUsageNotification(
 
 static NTSTATUS
 PdoEject(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
     PXENBUS_FDO     Fdo = __PdoGetFdo(Pdo);
@@ -1594,8 +1588,8 @@ PdoEject(
 
 static NTSTATUS
 PdoDispatchPnp(
-    IN  PXENBUS_PDO     Pdo,
-    IN  PIRP            Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
     PIO_STACK_LOCATION  StackLocation;
@@ -1606,7 +1600,7 @@ PdoDispatchPnp(
     MinorFunction = StackLocation->MinorFunction;
 
     Trace("====> (%02x:%s)\n",
-          MinorFunction, 
+          MinorFunction,
           PnpMinorFunctionName(MinorFunction));
 
     switch (StackLocation->MinorFunction) {
@@ -1693,17 +1687,80 @@ PdoDispatchPnp(
     }
 
     Trace("<==== (%02x:%s)(%08x)\n",
-          MinorFunction, 
+          MinorFunction,
           PnpMinorFunctionName(MinorFunction),
           status);
 
     return status;
 }
 
+static IO_WORKITEM_ROUTINE PdoSetDevicePowerWorker;
+
+_Use_decl_annotations_
+static VOID
+PdoSetDevicePowerWorker(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_opt_ PVOID      Context
+    )
+{
+    PXENBUS_PDO         Pdo = (PXENBUS_PDO) Context;
+    PIRP                Irp;
+    NTSTATUS            status;
+    PIO_STACK_LOCATION  StackLocation;
+    DEVICE_POWER_STATE  DeviceState;
+    POWER_ACTION        PowerAction;
+
+    UNREFERENCED_PARAMETER(DeviceObject);
+
+    ASSERT(Pdo != NULL);
+
+    Irp = InterlockedExchangePointer(&Pdo->DevicePowerIrp, NULL);
+    ASSERT(Irp != NULL);
+
+    StackLocation = IoGetCurrentIrpStackLocation(Irp);
+    DeviceState = StackLocation->Parameters.Power.State.DeviceState;
+    PowerAction = StackLocation->Parameters.Power.ShutdownType;
+
+    status = STATUS_SUCCESS;
+    if (__PdoGetDevicePowerState(Pdo) > DeviceState) {
+        Trace("%s: POWERING UP: %s -> %s\n",
+              __PdoGetName(Pdo),
+              DevicePowerStateName(__PdoGetDevicePowerState(Pdo)),
+              DevicePowerStateName(DeviceState));
+
+        ASSERT3U(DeviceState, ==, PowerDeviceD0);
+        status = PdoD3ToD0(Pdo);
+    } else if (__PdoGetDevicePowerState(Pdo) < DeviceState) {
+        Trace("%s: POWERING DOWN: %s -> %s\n",
+              __PdoGetName(Pdo),
+              DevicePowerStateName(__PdoGetDevicePowerState(Pdo)),
+              DevicePowerStateName(DeviceState));
+
+        ASSERT3U(DeviceState, ==, PowerDeviceD3);
+        PdoD0ToD3(Pdo);
+    }
+
+    if(NT_SUCCESS(status))
+        goto done;
+
+    Error("fail1 (%08x)\n", status);
+    /* TODO - Consider cycling device power at some later point?
+       Need PPO to retry SIRP -> DIRP */
+
+done:
+    /* Cannot fail the IRP at this point, keep going. */
+    Irp->IoStatus.Status = STATUS_SUCCESS;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+    Trace("<==== (%s:%s)\n",
+          DevicePowerStateName(DeviceState),
+          PowerActionName(PowerAction));
+}
+
 static NTSTATUS
 PdoSetDevicePower(
-    IN  PXENBUS_PDO     Pdo,
-    IN  PIRP            Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
     PIO_STACK_LOCATION  StackLocation;
@@ -1715,98 +1772,46 @@ PdoSetDevicePower(
     PowerAction = StackLocation->Parameters.Power.ShutdownType;
 
     Trace("====> (%s:%s)\n",
-          DevicePowerStateName(DeviceState), 
+          DevicePowerStateName(DeviceState),
           PowerActionName(PowerAction));
 
-    ASSERT3U(PowerAction, <, PowerActionShutdown);
+    IoMarkIrpPending(Irp);
 
-    if (__PdoGetDevicePowerState(Pdo) > DeviceState) {
-        Trace("%s: POWERING UP: %s -> %s\n",
-              __PdoGetName(Pdo),
-              DevicePowerStateName(__PdoGetDevicePowerState(Pdo)),
-              DevicePowerStateName(DeviceState));
+    (VOID) InterlockedExchangePointer(&Pdo->DevicePowerIrp, Irp);
 
-        ASSERT3U(DeviceState, ==, PowerDeviceD0);
-        PdoD3ToD0(Pdo);
-    } else if (__PdoGetDevicePowerState(Pdo) < DeviceState) {
-        Trace("%s: POWERING DOWN: %s -> %s\n",
-              __PdoGetName(Pdo),
-              DevicePowerStateName(__PdoGetDevicePowerState(Pdo)),
-              DevicePowerStateName(DeviceState));
+    IoQueueWorkItem(Pdo->DevicePowerWorkItem,
+                    PdoSetDevicePowerWorker,
+                    DelayedWorkQueue,
+                    Pdo);
 
-        ASSERT3U(DeviceState, ==, PowerDeviceD3);
-        PdoD0ToD3(Pdo);
-    }
-
-    Irp->IoStatus.Status = STATUS_SUCCESS;
-    IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-    Trace("<==== (%s:%s)\n",
-          DevicePowerStateName(DeviceState), 
-          PowerActionName(PowerAction));
-
-    return STATUS_SUCCESS;
+    return STATUS_PENDING;
 }
 
-static NTSTATUS
-PdoDevicePower(
-    IN  PXENBUS_THREAD  Self,
-    IN  PVOID           Context
+static IO_WORKITEM_ROUTINE PdoSetSystemPowerWorker;
+
+_Use_decl_annotations_
+static VOID
+PdoSetSystemPowerWorker(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_opt_ PVOID      Context
     )
 {
-    PXENBUS_PDO         Pdo = Context;
-    PKEVENT             Event;
-
-    Event = ThreadGetEvent(Self);
-
-    for (;;) {
-        PIRP    Irp;
-
-        if (Pdo->DevicePowerIrp == NULL) {
-            (VOID) KeWaitForSingleObject(Event,
-                                         Executive,
-                                         KernelMode,
-                                         FALSE,
-                                         NULL);
-            KeClearEvent(Event);
-        }
-
-        if (ThreadIsAlerted(Self))
-            break;
-
-        Irp = Pdo->DevicePowerIrp;
-
-        if (Irp == NULL)
-            continue;
-
-        Pdo->DevicePowerIrp = NULL;
-        KeMemoryBarrier();
-
-        (VOID) PdoSetDevicePower(Pdo, Irp);
-    }
-
-    return STATUS_SUCCESS;
-}
-
-static NTSTATUS
-PdoSetSystemPower(
-    IN  PXENBUS_PDO     Pdo,
-    IN  PIRP            Irp
-    )
-{
+    PXENBUS_PDO         Pdo = (PXENBUS_PDO) Context;
+    PIRP                Irp;
     PIO_STACK_LOCATION  StackLocation;
     SYSTEM_POWER_STATE  SystemState;
     POWER_ACTION        PowerAction;
 
+    UNREFERENCED_PARAMETER(DeviceObject);
+
+    ASSERT(Pdo != NULL);
+
+    Irp = InterlockedExchangePointer(&Pdo->SystemPowerIrp, NULL);
+    ASSERT(Irp != NULL);
+
     StackLocation = IoGetCurrentIrpStackLocation(Irp);
     SystemState = StackLocation->Parameters.Power.State.SystemState;
     PowerAction = StackLocation->Parameters.Power.ShutdownType;
-
-    Trace("====> (%s:%s)\n",
-          SystemPowerStateName(SystemState), 
-          PowerActionName(PowerAction));
-
-    ASSERT3U(PowerAction, <, PowerActionShutdown);
 
     if (__PdoGetSystemPowerState(Pdo) > SystemState) {
         if (SystemState < PowerSystemHibernate &&
@@ -1839,99 +1844,62 @@ PdoSetSystemPower(
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
 
     Trace("<==== (%s:%s)\n",
-          SystemPowerStateName(SystemState), 
+          SystemPowerStateName(SystemState),
           PowerActionName(PowerAction));
-
-    return STATUS_SUCCESS;
 }
 
 static NTSTATUS
-PdoSystemPower(
-    IN  PXENBUS_THREAD  Self,
-    IN  PVOID           Context
+PdoSetSystemPower(
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
-    PXENBUS_PDO         Pdo = Context;
-    PKEVENT             Event;
+    PIO_STACK_LOCATION  StackLocation;
+    SYSTEM_POWER_STATE  SystemState;
+    POWER_ACTION        PowerAction;
 
-    Event = ThreadGetEvent(Self);
+    StackLocation = IoGetCurrentIrpStackLocation(Irp);
+    SystemState = StackLocation->Parameters.Power.State.SystemState;
+    PowerAction = StackLocation->Parameters.Power.ShutdownType;
 
-    for (;;) {
-        PIRP    Irp;
+    Trace("====> (%s:%s)\n",
+          SystemPowerStateName(SystemState),
+          PowerActionName(PowerAction));
 
-        if (Pdo->SystemPowerIrp == NULL) {
-            (VOID) KeWaitForSingleObject(Event,
-                                         Executive,
-                                         KernelMode,
-                                         FALSE,
-                                         NULL);
-            KeClearEvent(Event);
-        }
+    IoMarkIrpPending(Irp);
 
-        if (ThreadIsAlerted(Self))
-            break;
+    (VOID) InterlockedExchangePointer(&Pdo->SystemPowerIrp, Irp);
 
-        Irp = Pdo->SystemPowerIrp;
+    IoQueueWorkItem(Pdo->SystemPowerWorkItem,
+                    PdoSetSystemPowerWorker,
+                    DelayedWorkQueue,
+                    Pdo);
 
-        if (Irp == NULL)
-            continue;
-
-        Pdo->SystemPowerIrp = NULL;
-        KeMemoryBarrier();
-
-        (VOID) PdoSetSystemPower(Pdo, Irp);
-    }
-
-    return STATUS_SUCCESS;
+    return STATUS_PENDING;
 }
 
 static NTSTATUS
-PdoSetPower(
-    IN  PXENBUS_PDO     Pdo,
-    IN  PIRP            Irp
+PdoDispatchSetPower(
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
     PIO_STACK_LOCATION  StackLocation;
     POWER_STATE_TYPE    PowerType;
     POWER_ACTION        PowerAction;
     NTSTATUS            status;
-    
+
     StackLocation = IoGetCurrentIrpStackLocation(Irp);
     PowerType = StackLocation->Parameters.Power.Type;
     PowerAction = StackLocation->Parameters.Power.ShutdownType;
 
-    if (PowerAction >= PowerActionShutdown) {
-        Irp->IoStatus.Status = STATUS_SUCCESS;
-        
-        status = Irp->IoStatus.Status;
-        IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-        goto done;
-    }
-
     switch (PowerType) {
     case DevicePowerState:
-        IoMarkIrpPending(Irp);
-
-        ASSERT3P(Pdo->DevicePowerIrp, ==, NULL);
-        Pdo->DevicePowerIrp = Irp;
-        KeMemoryBarrier();
-
-        ThreadWake(Pdo->DevicePowerThread);
-
-        status = STATUS_PENDING;
+        status = PdoSetDevicePower(Pdo, Irp);
         break;
 
     case SystemPowerState:
-        IoMarkIrpPending(Irp);
-
-        ASSERT3P(Pdo->SystemPowerIrp, ==, NULL);
-        Pdo->SystemPowerIrp = Irp;
-        KeMemoryBarrier();
-
-        ThreadWake(Pdo->SystemPowerThread);
-
-        status = STATUS_PENDING;
+        status = PdoSetSystemPower(Pdo, Irp);
         break;
 
     default:
@@ -1940,32 +1908,13 @@ PdoSetPower(
         break;
     }
 
-done:
-    return status;
-}
-
-static NTSTATUS
-PdoQueryPower(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
-    )
-{
-    NTSTATUS        status;
-
-    UNREFERENCED_PARAMETER(Pdo);
-
-    status = STATUS_SUCCESS;
-
-    Irp->IoStatus.Status = status;
-    IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
     return status;
 }
 
 static NTSTATUS
 PdoDispatchPower(
-    IN  PXENBUS_PDO     Pdo,
-    IN  PIRP            Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
     PIO_STACK_LOCATION  StackLocation;
@@ -1977,14 +1926,11 @@ PdoDispatchPower(
 
     switch (StackLocation->MinorFunction) {
     case IRP_MN_SET_POWER:
-        status = PdoSetPower(Pdo, Irp);
-        break;
-
-    case IRP_MN_QUERY_POWER:
-        status = PdoQueryPower(Pdo, Irp);
+        status = PdoDispatchSetPower(Pdo, Irp);
         break;
 
     default:
+        /* TODO - Always complete with status success?? */
         status = Irp->IoStatus.Status;
         IoCompleteRequest(Irp, IO_NO_INCREMENT);
         break;
@@ -1995,11 +1941,11 @@ PdoDispatchPower(
 
 static NTSTATUS
 PdoDispatchDefault(
-    IN  PXENBUS_PDO Pdo,
-    IN  PIRP        Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
-    NTSTATUS        status;
+    NTSTATUS            status;
 
     UNREFERENCED_PARAMETER(Pdo);
 
@@ -2011,8 +1957,8 @@ PdoDispatchDefault(
 
 NTSTATUS
 PdoDispatch(
-    IN  PXENBUS_PDO     Pdo,
-    IN  PIRP            Irp
+    _In_ PXENBUS_PDO    Pdo,
+    _In_ PIRP           Irp
     )
 {
     PIO_STACK_LOCATION  StackLocation;
@@ -2039,7 +1985,7 @@ PdoDispatch(
 
 VOID
 PdoResume(
-    IN  PXENBUS_PDO     Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     UNREFERENCED_PARAMETER(Pdo);
@@ -2049,7 +1995,7 @@ PdoResume(
 
 VOID
 PdoSuspend(
-    IN  PXENBUS_PDO     Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
     UNREFERENCED_PARAMETER(Pdo);
@@ -2059,8 +2005,8 @@ PdoSuspend(
 
 NTSTATUS
 PdoCreate(
-    IN  PXENBUS_FDO     Fdo,
-    IN  PANSI_STRING    Name
+    _In_ PXENBUS_FDO    Fdo,
+    _In_ PANSI_STRING   Name
     )
 {
     PDEVICE_OBJECT      PhysicalDeviceObject;
@@ -2098,12 +2044,12 @@ PdoCreate(
     Pdo->Dx = Dx;
     Pdo->Fdo = Fdo;
 
-    status = ThreadCreate(PdoSystemPower, Pdo, &Pdo->SystemPowerThread);
-    if (!NT_SUCCESS(status))
+    Pdo->SystemPowerWorkItem = IoAllocateWorkItem(PhysicalDeviceObject);
+    if (Pdo->SystemPowerWorkItem == NULL)
         goto fail3;
 
-    status = ThreadCreate(PdoDevicePower, Pdo, &Pdo->DevicePowerThread);
-    if (!NT_SUCCESS(status))
+    Pdo->DevicePowerWorkItem = IoAllocateWorkItem(PhysicalDeviceObject);
+    if (Pdo->DevicePowerWorkItem == NULL)
         goto fail4;
 
     __PdoSetName(Pdo, Name);
@@ -2140,16 +2086,14 @@ fail5:
     Pdo->Ejectable = FALSE;
     Pdo->Removable = FALSE;
 
-    ThreadAlert(Pdo->DevicePowerThread);
-    ThreadJoin(Pdo->DevicePowerThread);
-    Pdo->DevicePowerThread = NULL;
+    IoFreeWorkItem(Pdo->DevicePowerWorkItem);
+    Pdo->DevicePowerWorkItem = NULL;
 
 fail4:
     Error("fail4\n");
 
-    ThreadAlert(Pdo->SystemPowerThread);
-    ThreadJoin(Pdo->SystemPowerThread);
-    Pdo->SystemPowerThread = NULL;
+    IoFreeWorkItem(Pdo->SystemPowerWorkItem);
+    Pdo->SystemPowerWorkItem = NULL;
 
 fail3:
     Error("fail3\n");
@@ -2173,12 +2117,12 @@ fail1:
 
 VOID
 PdoDestroy(
-    IN  PXENBUS_PDO Pdo
+    _In_ PXENBUS_PDO    Pdo
     )
 {
-    PXENBUS_DX      Dx = Pdo->Dx;
-    PDEVICE_OBJECT  PhysicalDeviceObject = Dx->DeviceObject;
-    PXENBUS_FDO     Fdo = __PdoGetFdo(Pdo);
+    PXENBUS_DX          Dx = Pdo->Dx;
+    PDEVICE_OBJECT      PhysicalDeviceObject = Dx->DeviceObject;
+    PXENBUS_FDO         Fdo = __PdoGetFdo(Pdo);
 
     ASSERT3U(__PdoGetDevicePnpState(Pdo), ==, Deleted);
 
@@ -2203,13 +2147,11 @@ PdoDestroy(
     Pdo->Ejectable = FALSE;
     Pdo->Removable = FALSE;
 
-    ThreadAlert(Pdo->DevicePowerThread);
-    ThreadJoin(Pdo->DevicePowerThread);
-    Pdo->DevicePowerThread = NULL;
-    
-    ThreadAlert(Pdo->SystemPowerThread);
-    ThreadJoin(Pdo->SystemPowerThread);
-    Pdo->SystemPowerThread = NULL;
+    IoFreeWorkItem(Pdo->DevicePowerWorkItem);
+    Pdo->DevicePowerWorkItem = NULL;
+
+    IoFreeWorkItem(Pdo->SystemPowerWorkItem);
+    Pdo->SystemPowerWorkItem = NULL;
 
     Pdo->Fdo = NULL;
     Pdo->Dx = NULL;

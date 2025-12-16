@@ -1,36 +1,38 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
 #include <ntddk.h>
 #include <ntstrsafe.h>
+#include <ntintsafe.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <xen.h>
@@ -66,7 +68,7 @@ struct _XENBUS_STORE_WATCH {
     ULONG       Magic;
     PVOID       Caller;
     USHORT      Id;
-    PCHAR       Path;
+    PSTR        Path;
     PKEVENT     Event;
     BOOLEAN     Active; // Must be tested at >= DISPATCH_LEVEL
 };
@@ -80,7 +82,7 @@ typedef enum _XENBUS_STORE_REQUEST_STATE {
 } XENBUS_STORE_REQUEST_STATE, *PXENBUS_STORE_REQUEST_STATE;
 
 typedef struct _XENBUS_STORE_SEGMENT {
-    PCHAR   Data;
+    PSTR    Data;
     ULONG   Offset;
     ULONG   Length;
 } XENBUS_STORE_SEGMENT, *PXENBUS_STORE_SEGMENT;
@@ -115,6 +117,7 @@ typedef struct _XENBUS_STORE_REQUEST {
 typedef struct _XENBUS_STORE_BUFFER {
     LIST_ENTRY  ListEntry;
     ULONG       Magic;
+    ULONG       Length;
     PVOID       Caller;
     CHAR        Data[1];
 } XENBUS_STORE_BUFFER, *PXENBUS_STORE_BUFFER;
@@ -155,7 +158,7 @@ C_ASSERT(sizeof (struct xenstore_domain_interface) <= PAGE_SIZE);
 
 static FORCEINLINE PVOID
 __StoreAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, XENBUS_STORE_TAG);
@@ -163,7 +166,7 @@ __StoreAllocate(
 
 static FORCEINLINE VOID
 __StoreFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, XENBUS_STORE_TAG);
@@ -171,19 +174,19 @@ __StoreFree(
 
 static NTSTATUS
 StorePrepareRequest(
-    IN  PXENBUS_STORE_CONTEXT       Context,
-    OUT PXENBUS_STORE_REQUEST       Request,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction OPTIONAL,
-    IN  enum xsd_sockmsg_type       Type,
-    IN  ...
+    _In_ PXENBUS_STORE_CONTEXT          Context,
+    _Out_ PXENBUS_STORE_REQUEST         Request,
+    _In_opt_ PXENBUS_STORE_TRANSACTION  Transaction,
+    _In_ enum xsd_sockmsg_type          Type,
+    ...
     )
 {
-    ULONG                           Id;
-    KIRQL                           Irql;
-    PXENBUS_STORE_SEGMENT           Segment;
-    va_list                         Arguments;
-    NTSTATUS                        status;
+    ULONG                               Id;
+    PXENBUS_STORE_SEGMENT               Segment;
+    va_list                             Arguments;
+    NTSTATUS                            status;
 
+#pragma prefast(suppress:6001) // for ASSERT on Request only
     ASSERT(IsZeroMemory(Request, sizeof (XENBUS_STORE_REQUEST)));
 
     if (Transaction != NULL) {
@@ -199,39 +202,42 @@ StorePrepareRequest(
     Request->Header.type = Type;
     Request->Header.tx_id = Id;
     Request->Header.len = 0;
-
-    KeAcquireSpinLock(&Context->Lock, &Irql);
     Request->Header.req_id = Context->RequestId++;
-    KeReleaseSpinLock(&Context->Lock, Irql);
 
     Request->Count = 0;
     Segment = &Request->Segment[Request->Count++];
 
-    Segment->Data = (PCHAR)&Request->Header;
+    Segment->Data = (PSTR)&Request->Header;
     Segment->Offset = 0;
     Segment->Length = sizeof (struct xsd_sockmsg);
 
     va_start(Arguments, Type);
+    status = STATUS_UNSUCCESSFUL;
     for (;;) {
-        PCHAR   Data;
+        PSTR    Data;
         ULONG   Length;
 
-        Data = va_arg(Arguments, PCHAR);
+        Data = va_arg(Arguments, PSTR);
         Length = va_arg(Arguments, ULONG);
-        
+
         if (Data == NULL) {
             ASSERT3U(Length, ==, 0);
             break;
         }
 
+        if (Request->Count >= XENBUS_STORE_REQUEST_SEGMENT_COUNT)
+            goto fail2;
         Segment = &Request->Segment[Request->Count++];
-        ASSERT3U(Request->Count, <, XENBUS_STORE_REQUEST_SEGMENT_COUNT);
 
         Segment->Data = Data;
         Segment->Offset = 0;
         Segment->Length = Length;
 
-        Request->Header.len += Segment->Length;
+        if (!NT_SUCCESS(RtlULongAdd(Request->Header.len,
+                                    Segment->Length,
+                                    &Request->Header.len)) ||
+            Request->Header.len > XENSTORE_PAYLOAD_MAX)
+            goto fail3;
     }
     va_end(Arguments);
 
@@ -239,15 +245,19 @@ StorePrepareRequest(
 
     return STATUS_SUCCESS;
 
+fail3:
+fail2:
+    RtlZeroMemory(Request, sizeof (XENBUS_STORE_REQUEST));
+
 fail1:
     return status;
 }
 
 static ULONG
 StoreCopyToRing(
-    IN  PXENBUS_STORE_CONTEXT           Context,
-    IN  PCHAR                           Data,
-    IN  ULONG                           Length
+    _In_ PXENBUS_STORE_CONTEXT          Context,
+    _In_ PSTR                           Data,
+    _In_ ULONG                          Length
     )
 {
     struct xenstore_domain_interface    *Shared;
@@ -294,14 +304,14 @@ StoreCopyToRing(
 
     KeMemoryBarrier();
 
-    return Offset;    
+    return Offset;
 }
 
 static NTSTATUS
 StoreSendSegment(
-    IN      PXENBUS_STORE_CONTEXT   Context,
-    IN OUT  PXENBUS_STORE_SEGMENT   Segment,
-    IN OUT  PULONG                  Written
+    _In_ PXENBUS_STORE_CONTEXT      Context,
+    _Inout_ PXENBUS_STORE_SEGMENT   Segment,
+    _Inout_ PULONG                  Written
     )
 {
     ULONG                           Copied;
@@ -319,8 +329,8 @@ StoreSendSegment(
 
 static VOID
 StoreSendRequests(
-    IN      PXENBUS_STORE_CONTEXT   Context,
-    IN OUT  PULONG                  Written
+    _In_ PXENBUS_STORE_CONTEXT      Context,
+    _Inout_ PULONG                  Written
     )
 {
     if (IsListEmpty(&Context->SubmittedList))
@@ -362,9 +372,9 @@ StoreSendRequests(
 
 static ULONG
 StoreCopyFromRing(
-    IN  PXENBUS_STORE_CONTEXT           Context,
-    IN  PCHAR                           Data,
-    IN  ULONG                           Length
+    _In_ PXENBUS_STORE_CONTEXT          Context,
+    _In_ PSTR                           Data,
+    _In_ ULONG                          Length
     )
 {
     struct xenstore_domain_interface    *Shared;
@@ -411,14 +421,14 @@ StoreCopyFromRing(
 
     KeMemoryBarrier();
 
-    return Offset;    
+    return Offset;
 }
 
 static NTSTATUS
 StoreReceiveSegment(
-    IN      PXENBUS_STORE_CONTEXT   Context,
-    IN OUT  PXENBUS_STORE_SEGMENT   Segment,
-    IN OUT  PULONG                  Read
+    _In_ PXENBUS_STORE_CONTEXT      Context,
+    _Inout_ PXENBUS_STORE_SEGMENT   Segment,
+    _Inout_ PULONG                  Read
     )
 {
     ULONG                           Copied;
@@ -436,7 +446,7 @@ StoreReceiveSegment(
 
 static BOOLEAN
 StoreIgnoreHeaderType(
-    IN  ULONG   Type
+    _In_ ULONG  Type
     )
 {
     switch (Type) {
@@ -486,13 +496,13 @@ StoreVerifyHeader(
         Valid = FALSE;
     }
 
-    return Valid;    
+    return Valid;
 }
 
 static NTSTATUS
 StoreReceiveResponse(
-    IN      PXENBUS_STORE_CONTEXT   Context,
-    IN OUT  PULONG                  Read
+    _In_ PXENBUS_STORE_CONTEXT      Context,
+    _Inout_ PULONG                  Read
     )
 {
     PXENBUS_STORE_RESPONSE          Response = &Context->Response;
@@ -521,13 +531,13 @@ payload:
                                  Read);
 
 done:
-    return status;    
+    return status;
 }
 
 static PXENBUS_STORE_REQUEST
 StoreFindRequest(
-    IN  PXENBUS_STORE_CONTEXT   Context,
-    IN  uint32_t                req_id
+    _In_ PXENBUS_STORE_CONTEXT  Context,
+    _In_ uint32_t               req_id
     )
 {
     PLIST_ENTRY                 ListEntry;
@@ -551,8 +561,8 @@ StoreFindRequest(
 
 static PXENBUS_STORE_WATCH
 StoreFindWatch(
-    IN  PXENBUS_STORE_CONTEXT   Context,
-    IN  USHORT                  Id
+    _In_ PXENBUS_STORE_CONTEXT  Context,
+    _In_ USHORT                 Id
     )
 {
     PLIST_ENTRY                 ListEntry;
@@ -576,7 +586,7 @@ StoreFindWatch(
 
 static USHORT
 StoreNextWatchId(
-    IN  PXENBUS_STORE_CONTEXT   Context
+    _In_ PXENBUS_STORE_CONTEXT  Context
     )
 {
     USHORT                      Id;
@@ -600,14 +610,14 @@ StoreNextWatchId(
 
 static NTSTATUS
 StoreParseWatchEvent(
-    IN  PCHAR   Data,
-    IN  ULONG   Length,
-    OUT PCHAR   *Path,
-    OUT PVOID   *Caller,
-    OUT PUSHORT Id
+    _In_ PSTR               Data,
+    _In_ ULONG              Length,
+    _Outptr_result_z_ PSTR  *Path,
+    _Outptr_ PVOID          *Caller,
+    _Out_ PUSHORT           Id
     )
 {
-    PCHAR       End;
+    PSTR            End;
 
     *Path = Data;
     while (*Data != '\0' && Length != 0) {
@@ -669,11 +679,11 @@ fail1:
 
 static VOID
 StoreProcessWatchEvent(
-    IN  PXENBUS_STORE_CONTEXT   Context
+    _In_ PXENBUS_STORE_CONTEXT  Context
     )
 {
     PXENBUS_STORE_RESPONSE      Response;
-    PCHAR                       Path;
+    PSTR                        Path;
     PVOID                       Caller;
     USHORT                      Id;
     PXENBUS_STORE_WATCH         Watch;
@@ -696,7 +706,7 @@ StoreProcessWatchEvent(
     Watch = StoreFindWatch(Context, Id);
 
     if (Watch == NULL) {
-        PCHAR       Name;
+        PSTR        Name;
         ULONG_PTR   Offset;
 
         ModuleLookup((ULONG_PTR)Caller, &Name, &Offset);
@@ -721,7 +731,7 @@ StoreProcessWatchEvent(
 
 static VOID
 StoreResetResponse(
-    IN  PXENBUS_STORE_CONTEXT   Context
+    _In_ PXENBUS_STORE_CONTEXT  Context
     )
 {
     PXENBUS_STORE_RESPONSE      Response;
@@ -733,31 +743,25 @@ StoreResetResponse(
 
     Segment = &Response->Segment[XENBUS_STORE_RESPONSE_HEADER_SEGMENT];
 
-    Segment->Data = (PCHAR)&Response->Header;
+    Segment->Data = (PSTR)&Response->Header;
     Segment->Offset = 0;
     Segment->Length = sizeof (struct xsd_sockmsg);
 }
 
-static PXENBUS_STORE_RESPONSE
+static VOID
 StoreCopyResponse(
-    IN  PXENBUS_STORE_CONTEXT   Context
+    _In_ PXENBUS_STORE_CONTEXT      Context,
+    _Out_ PXENBUS_STORE_RESPONSE    Response
     )
 {
-    PXENBUS_STORE_RESPONSE      Response;
-    PXENBUS_STORE_SEGMENT       Segment;
-    NTSTATUS                    status;
+    PXENBUS_STORE_SEGMENT           Segment;
 
-    Response = __StoreAllocate(sizeof (XENBUS_STORE_RESPONSE));
-
-    status = STATUS_NO_MEMORY;
-    if (Response == NULL)
-        goto fail1;
-
+    ASSERT(Response != NULL);
     *Response = Context->Response;
 
     Segment = &Response->Segment[XENBUS_STORE_RESPONSE_HEADER_SEGMENT];
-    ASSERT3P(Segment->Data, ==, (PCHAR)&Context->Response.Header);
-    Segment->Data = (PCHAR)&Response->Header;
+    ASSERT3P(Segment->Data, ==, (PSTR)&Context->Response.Header);
+    Segment->Data = (PSTR)&Response->Header;
 
     Segment = &Response->Segment[XENBUS_STORE_RESPONSE_PAYLOAD_SEGMENT];
     if (Segment->Length != 0) {
@@ -766,26 +770,19 @@ StoreCopyResponse(
     } else {
         ASSERT3P(Segment->Data, ==, NULL);
     }
-
-    return Response;
-
-fail1:
-    Error("fail1 (%08x)\n", status);
-
-    return NULL;
 }
 
 static VOID
 StoreFreeResponse(
-    IN  PXENBUS_STORE_RESPONSE  Response
+    _In_ PXENBUS_STORE_RESPONSE Response
     )
 {
-    __StoreFree(Response);    
+    __StoreFree(Response);
 }
 
 static VOID
 StoreProcessResponse(
-    IN  PXENBUS_STORE_CONTEXT   Context
+    _In_ PXENBUS_STORE_CONTEXT  Context
     )
 {
     PXENBUS_STORE_RESPONSE      Response;
@@ -816,7 +813,7 @@ StoreProcessResponse(
 
     RemoveEntryList(&Request->ListEntry);
 
-    Request->Response = StoreCopyResponse(Context);
+    StoreCopyResponse(Context, Request->Response);
     StoreResetResponse(Context);
 
     Request->State = XENBUS_STORE_REQUEST_COMPLETED;
@@ -826,7 +823,7 @@ StoreProcessResponse(
 
 static ULONG
 StorePollLocked(
-    IN  PXENBUS_STORE_CONTEXT   Context
+    _In_ PXENBUS_STORE_CONTEXT  Context
     )
 {
     ULONG                       Count;
@@ -869,7 +866,7 @@ StorePollLocked(
 
 static FORCEINLINE VOID
 __StorePoll(
-    IN  PXENBUS_STORE_CONTEXT   Context
+    _In_ PXENBUS_STORE_CONTEXT  Context
     )
 {
     KeAcquireSpinLockAtDpcLevel(&Context->Lock);
@@ -886,10 +883,10 @@ _IRQL_requires_(DISPATCH_LEVEL)
 _IRQL_requires_same_
 VOID
 StoreDpc(
-    IN  PKDPC               Dpc,
-    IN  PVOID               _Context,
-    IN  PVOID               Argument1,
-    IN  PVOID               Argument2
+    _In_ PKDPC              Dpc,
+    _In_ PVOID              _Context,
+    _In_ PVOID              Argument1,
+    _In_ PVOID              Argument2
     )
 {
     PXENBUS_STORE_CONTEXT   Context = _Context;
@@ -911,8 +908,8 @@ StoreDpc(
 
 static PXENBUS_STORE_RESPONSE
 StoreSubmitRequest(
-    IN  PXENBUS_STORE_CONTEXT   Context,
-    IN  PXENBUS_STORE_REQUEST   Request
+    _In_ PXENBUS_STORE_CONTEXT  Context,
+    _In_ PXENBUS_STORE_REQUEST  Request
     )
 {
     PXENBUS_STORE_RESPONSE      Response;
@@ -920,8 +917,15 @@ StoreSubmitRequest(
     ULONG                       Count;
     XENBUS_STORE_REQUEST_STATE  State;
     LARGE_INTEGER               Timeout;
+    NTSTATUS                    status;
 
     ASSERT3U(Request->State, ==, XENBUS_STORE_REQUEST_PREPARED);
+
+    Request->Response = __StoreAllocate(sizeof (XENBUS_STORE_RESPONSE));
+
+    status = STATUS_NO_MEMORY;
+    if (Request->Response == NULL)
+        goto fail1;
 
     // Make sure we don't suspend
     ASSERT3U(KeGetCurrentIrql(), <=, DISPATCH_LEVEL);
@@ -941,8 +945,6 @@ StoreSubmitRequest(
     Timeout.QuadPart = TIME_RELATIVE(TIME_S(XENBUS_STORE_POLL_PERIOD));
 
     while (State != XENBUS_STORE_REQUEST_COMPLETED) {
-        NTSTATUS    status;
-
         status = XENBUS_EVTCHN(Wait,
                                &Context->EvtchnInterface,
                                Context->Channel,
@@ -969,11 +971,16 @@ StoreSubmitRequest(
     KeLowerIrql(Irql);
 
     return Response;
+
+fail1:
+    Error("fail1 (%08x)\n", status);
+
+    return NULL;
 }
 
 static NTSTATUS
 StoreCheckResponse(
-    IN  PXENBUS_STORE_RESPONSE  Response
+    _In_ PXENBUS_STORE_RESPONSE Response
     )
 {
     NTSTATUS                    status;
@@ -981,7 +988,7 @@ StoreCheckResponse(
     status = STATUS_SUCCESS;
 
     if (Response->Header.type == XS_ERROR) {
-        PCHAR   Error;
+        PSTR    Error;
         ULONG   Length;
         ULONG   Index;
 
@@ -997,7 +1004,7 @@ StoreCheckResponse(
              Index < sizeof (xsd_errors) / sizeof (xsd_errors[0]);
              Index++) {
             struct xsd_errors   *Entry = &xsd_errors[Index];
-            
+
             if (strncmp(Error, Entry->errstring, Length) == 0) {
                 ERRNO_TO_STATUS(Entry->errnum, status);
                 goto done;
@@ -1013,12 +1020,12 @@ done:
 
 static PXENBUS_STORE_BUFFER
 StoreCopyPayload(
-    IN  PXENBUS_STORE_CONTEXT   Context,
-    IN  PXENBUS_STORE_RESPONSE  Response,
-    IN  PVOID                   Caller
+    _In_ PXENBUS_STORE_CONTEXT  Context,
+    _In_ PXENBUS_STORE_RESPONSE Response,
+    _In_ PVOID                  Caller
     )
 {
-    PCHAR                       Data;
+    PSTR                        Data;
     ULONG                       Length;
     PXENBUS_STORE_BUFFER        Buffer;
     KIRQL                       Irql;
@@ -1036,6 +1043,7 @@ StoreCopyPayload(
         goto fail1;
 
     Buffer->Magic = XENBUS_STORE_BUFFER_MAGIC;
+    Buffer->Length = Length;
     Buffer->Caller = Caller;
 
     RtlCopyMemory(Buffer->Data, Data, Length);
@@ -1044,7 +1052,7 @@ StoreCopyPayload(
     InsertTailList(&Context->BufferList, &Buffer->ListEntry);
     KeReleaseSpinLock(&Context->Lock, Irql);
 
-    return Buffer;        
+    return Buffer;
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -1054,8 +1062,8 @@ fail1:
 
 static VOID
 StoreFreePayload(
-    IN  PXENBUS_STORE_CONTEXT   Context,
-    IN  PXENBUS_STORE_BUFFER    Buffer
+    _In_ PXENBUS_STORE_CONTEXT  Context,
+    _In_ PXENBUS_STORE_BUFFER   Buffer
     )
 {
     KIRQL                       Irql;
@@ -1071,8 +1079,8 @@ StoreFreePayload(
 
 static VOID
 StoreFree(
-    IN  PINTERFACE          Interface,
-    IN  PCHAR               Value
+    _In_ PINTERFACE         Interface,
+    _In_ PSTR               Value
     )
 {
     PXENBUS_STORE_CONTEXT   Context = Interface->Context;
@@ -1092,24 +1100,76 @@ RtlCaptureStackBackTrace(
     );
 
 static NTSTATUS
-StoreRead(
-    IN  PINTERFACE                  Interface,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction OPTIONAL,
-    IN  PCHAR                       Prefix OPTIONAL,
-    IN  PCHAR                       Node,
-    OUT PCHAR                       *Value
+StoreCheckPathLength(
+    _In_opt_ PSTR   Prefix,
+    _In_ PSTR       Node
     )
 {
-    PXENBUS_STORE_CONTEXT           Context = Interface->Context;
-    PVOID                           Caller;
-    XENBUS_STORE_REQUEST            Request;
-    PXENBUS_STORE_RESPONSE          Response;
-    PXENBUS_STORE_BUFFER            Buffer;
-    NTSTATUS                        status;
+    size_t          MaximumLength;
+    size_t          Length;
 
-    (VOID) RtlCaptureStackBackTrace(1, 1, &Caller, NULL);    
+    if (Prefix != NULL) {
+        MaximumLength = (Prefix[0] == '/' || Prefix[0] == '\0') ?
+                    XENSTORE_ABS_PATH_MAX :
+                    XENSTORE_REL_PATH_MAX;
+
+        Length = strlen(Prefix);
+        if (Length > MaximumLength)
+            goto fail1;
+        MaximumLength -= Length;
+
+        if (MaximumLength < 1)
+            goto fail2;
+        MaximumLength -= 1;
+    } else {
+        MaximumLength = Node[0] == '/' ?
+                            XENSTORE_ABS_PATH_MAX :
+                            XENSTORE_REL_PATH_MAX;
+    }
+
+    Length = strlen(Node);
+    if (Length > MaximumLength)
+        goto fail3;
+    MaximumLength -= Length;
+
+    if (MaximumLength < 1)
+        goto fail4;
+
+    return STATUS_SUCCESS;
+
+fail4:
+fail3:
+fail2:
+fail1:
+    return STATUS_INVALID_BUFFER_SIZE;
+}
+
+static NTSTATUS
+StoreRead(
+    _In_ PINTERFACE                     Interface,
+    _In_opt_ PXENBUS_STORE_TRANSACTION  Transaction,
+    _In_opt_ PSTR                       Prefix,
+    _In_ PSTR                           Node,
+    _Outptr_result_z_ PSTR              *Value
+    )
+{
+    PXENBUS_STORE_CONTEXT               Context = Interface->Context;
+    PVOID                               Caller;
+    XENBUS_STORE_REQUEST                Request;
+    KIRQL                               Irql;
+    PXENBUS_STORE_RESPONSE              Response;
+    PXENBUS_STORE_BUFFER                Buffer;
+    NTSTATUS                            status;
+
+    status = StoreCheckPathLength(Prefix, Node);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    (VOID) RtlCaptureStackBackTrace(1, 1, &Caller, NULL);
 
     RtlZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST));
+
+    KeAcquireSpinLock(&Context->Lock, &Irql);
 
     if (Prefix == NULL) {
         status = StorePrepareRequest(Context,
@@ -1131,24 +1191,26 @@ StoreRead(
                                      NULL, 0);
     }
 
+    KeReleaseSpinLock(&Context->Lock, Irql);
+
     if (!NT_SUCCESS(status))
-        goto fail1;
+        goto fail2;
 
     Response = StoreSubmitRequest(Context, &Request);
 
     status = STATUS_NO_MEMORY;
     if (Response == NULL)
-        goto fail2;
+        goto fail3;
 
     status = StoreCheckResponse(Response);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
 
     Buffer = StoreCopyPayload(Context, Response, Caller);
 
     status = STATUS_NO_MEMORY;
     if (Buffer == NULL)
-        goto fail4;
+        goto fail5;
 
     StoreFreeResponse(Response);
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
@@ -1157,31 +1219,35 @@ StoreRead(
 
     return STATUS_SUCCESS;
 
+fail5:
 fail4:
-fail3:
     StoreFreeResponse(Response);
 
+fail3:
 fail2:
-fail1:
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
 
+fail1:
     return status;
 }
 
 static NTSTATUS
 StoreWrite(
-    IN  PXENBUS_STORE_CONTEXT       Context,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction OPTIONAL,
-    IN  PCHAR                       Prefix OPTIONAL,
-    IN  PCHAR                       Node,
-    IN  PCHAR                       Value
+    _In_ PXENBUS_STORE_CONTEXT          Context,
+    _In_opt_ PXENBUS_STORE_TRANSACTION  Transaction,
+    _In_opt_ PSTR                       Prefix,
+    _In_ PSTR                           Node,
+    _In_ PSTR                           Value
     )
 {
-    XENBUS_STORE_REQUEST            Request;
-    PXENBUS_STORE_RESPONSE          Response;
-    NTSTATUS                        status;
+    XENBUS_STORE_REQUEST                Request;
+    KIRQL                               Irql;
+    PXENBUS_STORE_RESPONSE              Response;
+    NTSTATUS                            status;
 
     RtlZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST));
+
+    KeAcquireSpinLock(&Context->Lock, &Irql);
 
     if (Prefix == NULL) {
         status = StorePrepareRequest(Context,
@@ -1205,6 +1271,8 @@ StoreWrite(
                                      NULL, 0);
     }
 
+    KeReleaseSpinLock(&Context->Lock, Irql);
+
     if (!NT_SUCCESS(status))
         goto fail1;
 
@@ -1227,26 +1295,26 @@ fail3:
     StoreFreeResponse(Response);
 
 fail2:
-fail1:
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
 
+fail1:
     return status;
 }
 
 static NTSTATUS
 StoreVPrintf(
-    IN  PINTERFACE                  Interface,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction OPTIONAL,
-    IN  PCHAR                       Prefix OPTIONAL,
-    IN  PCHAR                       Node,
-    IN  const CHAR                  *Format,
-    IN  va_list                     Arguments
+    _In_ PINTERFACE                     Interface,
+    _In_opt_ PXENBUS_STORE_TRANSACTION  Transaction,
+    _In_opt_ PSTR                       Prefix,
+    _In_ PSTR                           Node,
+    _In_ PCSTR                          Format,
+    _In_ va_list                        Arguments
     )
 {
-    PXENBUS_STORE_CONTEXT           Context = Interface->Context;
-    PCHAR                           Buffer;
-    ULONG                           Length;
-    NTSTATUS                        status;
+    PXENBUS_STORE_CONTEXT               Context = Interface->Context;
+    PSTR                                Buffer;
+    ULONG                               Length;
+    NTSTATUS                            status;
 
     Length = 32;
     for (;;) {
@@ -1266,10 +1334,12 @@ StoreVPrintf(
         if (status != STATUS_BUFFER_OVERFLOW)
             goto fail2;
 
-        __StoreFree(Buffer);
+        status = STATUS_INVALID_BUFFER_SIZE;
         Length <<= 1;
+        if (Length > 1024)
+            goto fail3;
 
-        ASSERT3U(Length, <=, 1024);
+        __StoreFree(Buffer);
     }
 
     status = StoreWrite(Context,
@@ -1278,12 +1348,13 @@ StoreVPrintf(
                           Node,
                           Buffer);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
 
     __StoreFree(Buffer);
 
     return STATUS_SUCCESS;
 
+fail4:
 fail3:
 fail2:
     __StoreFree(Buffer);
@@ -1294,16 +1365,20 @@ fail1:
 
 static NTSTATUS
 StorePrintf(
-    IN  PINTERFACE                  Interface,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction OPTIONAL,
-    IN  PCHAR                       Prefix OPTIONAL,
-    IN  PCHAR                       Node,
-    IN  const CHAR                  *Format,
+    _In_ PINTERFACE                     Interface,
+    _In_opt_ PXENBUS_STORE_TRANSACTION  Transaction,
+    _In_opt_ PSTR                       Prefix,
+    _In_ PSTR                           Node,
+    _In_ PCSTR                          Format,
     ...
     )
 {
-    va_list                         Arguments;
-    NTSTATUS                        status;
+    va_list                             Arguments;
+    NTSTATUS                            status;
+
+    status = StoreCheckPathLength(Prefix, Node);
+    if (!NT_SUCCESS(status))
+        goto fail1;
 
     va_start(Arguments, Format);
     status = StoreVPrintf(Interface,
@@ -1315,22 +1390,32 @@ StorePrintf(
     va_end(Arguments);
 
     return status;
+
+fail1:
+    return status;
 }
 
 static NTSTATUS
 StoreRemove(
-    IN  PINTERFACE                  Interface,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction OPTIONAL,
-    IN  PCHAR                       Prefix OPTIONAL,
-    IN  PCHAR                       Node
+    _In_ PINTERFACE                     Interface,
+    _In_opt_ PXENBUS_STORE_TRANSACTION  Transaction,
+    _In_opt_ PSTR                       Prefix,
+    _In_ PSTR                           Node
     )
 {
-    PXENBUS_STORE_CONTEXT           Context = Interface->Context;
-    XENBUS_STORE_REQUEST            Request;
-    PXENBUS_STORE_RESPONSE          Response;
-    NTSTATUS                        status;
+    PXENBUS_STORE_CONTEXT               Context = Interface->Context;
+    XENBUS_STORE_REQUEST                Request;
+    KIRQL                               Irql;
+    PXENBUS_STORE_RESPONSE              Response;
+    NTSTATUS                            status;
+
+    status = StoreCheckPathLength(Prefix, Node);
+    if (!NT_SUCCESS(status))
+        goto fail1;
 
     RtlZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST));
+
+    KeAcquireSpinLock(&Context->Lock, &Irql);
 
     if (Prefix == NULL) {
         status = StorePrepareRequest(Context,
@@ -1352,53 +1437,63 @@ StoreRemove(
                                      NULL, 0);
     }
 
+    KeReleaseSpinLock(&Context->Lock, Irql);
+
     if (!NT_SUCCESS(status))
-        goto fail1;
+        goto fail2;
 
     Response = StoreSubmitRequest(Context, &Request);
 
     status = STATUS_NO_MEMORY;
     if (Response == NULL)
-        goto fail2;
+        goto fail3;
 
     status = StoreCheckResponse(Response);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
 
     StoreFreeResponse(Response);
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
 
     return STATUS_SUCCESS;
 
-fail3:
+fail4:
     StoreFreeResponse(Response);
 
+fail3:
 fail2:
-fail1:
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
 
+fail1:
     return status;
 }
 
 static NTSTATUS
 StoreDirectory(
-    IN  PINTERFACE                  Interface,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction OPTIONAL,
-    IN  PCHAR                       Prefix OPTIONAL,
-    IN  PCHAR                       Node,
-    OUT PCHAR                       *Value
+    _In_ PINTERFACE                     Interface,
+    _In_opt_ PXENBUS_STORE_TRANSACTION  Transaction,
+    _In_opt_ PSTR                       Prefix,
+    _In_ PSTR                           Node,
+    _Outptr_result_z_ PSTR              *Value
     )
 {
-    PXENBUS_STORE_CONTEXT           Context = Interface->Context;
-    PVOID                           Caller;
-    XENBUS_STORE_REQUEST            Request;
-    PXENBUS_STORE_RESPONSE          Response;
-    PXENBUS_STORE_BUFFER            Buffer;
-    NTSTATUS                        status;
+    PXENBUS_STORE_CONTEXT               Context = Interface->Context;
+    PVOID                               Caller;
+    XENBUS_STORE_REQUEST                Request;
+    KIRQL                               Irql;
+    PXENBUS_STORE_RESPONSE              Response;
+    PXENBUS_STORE_BUFFER                Buffer;
+    NTSTATUS                            status;
 
-    (VOID) RtlCaptureStackBackTrace(1, 1, &Caller, NULL);    
+    status = StoreCheckPathLength(Prefix, Node);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    (VOID) RtlCaptureStackBackTrace(1, 1, &Caller, NULL);
 
     RtlZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST));
+
+    KeAcquireSpinLock(&Context->Lock, &Irql);
 
     if (Prefix == NULL) {
         status = StorePrepareRequest(Context,
@@ -1420,24 +1515,30 @@ StoreDirectory(
                                      NULL, 0);
     }
 
+    KeReleaseSpinLock(&Context->Lock, Irql);
+
     if (!NT_SUCCESS(status))
-        goto fail1;
+        goto fail2;
 
     Response = StoreSubmitRequest(Context, &Request);
 
     status = STATUS_NO_MEMORY;
     if (Response == NULL)
-        goto fail2;
+        goto fail3;
 
     status = StoreCheckResponse(Response);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
 
     Buffer = StoreCopyPayload(Context, Response, Caller);
 
     status = STATUS_NO_MEMORY;
     if (Buffer == NULL)
-        goto fail4;
+        goto fail5;
+
+    status = STATUS_OBJECT_PATH_NOT_FOUND;
+    if (Buffer->Length == 0)
+        goto fail6;
 
     StoreFreeResponse(Response);
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
@@ -1446,28 +1547,32 @@ StoreDirectory(
 
     return STATUS_SUCCESS;
 
+fail6:
+    StoreFreePayload(Context, Buffer);
+
+fail5:
 fail4:
-fail3:
     StoreFreeResponse(Response);
 
+fail3:
 fail2:
-fail1:
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
 
+fail1:
     return status;
 }
 
 static NTSTATUS
 StoreTransactionStart(
-    IN  PINTERFACE                  Interface,
-    OUT PXENBUS_STORE_TRANSACTION   *Transaction
+    _In_ PINTERFACE                     Interface,
+    _Outptr_ PXENBUS_STORE_TRANSACTION  *Transaction
     )
 {
-    PXENBUS_STORE_CONTEXT           Context = Interface->Context;
-    XENBUS_STORE_REQUEST            Request;
-    PXENBUS_STORE_RESPONSE          Response;
-    KIRQL                           Irql;
-    NTSTATUS                        status;
+    PXENBUS_STORE_CONTEXT               Context = Interface->Context;
+    XENBUS_STORE_REQUEST                Request;
+    PXENBUS_STORE_RESPONSE              Response;
+    KIRQL                               Irql;
+    NTSTATUS                            status;
 
     *Transaction = __StoreAllocate(sizeof (XENBUS_STORE_TRANSACTION));
 
@@ -1476,9 +1581,11 @@ StoreTransactionStart(
         goto fail1;
 
     (*Transaction)->Magic = STORE_TRANSACTION_MAGIC;
-    (VOID) RtlCaptureStackBackTrace(1, 1, &(*Transaction)->Caller, NULL);    
+    (VOID) RtlCaptureStackBackTrace(1, 1, &(*Transaction)->Caller, NULL);
 
     RtlZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST));
+
+    KeAcquireSpinLock(&Context->Lock, &Irql);
 
     status = StorePrepareRequest(Context,
                                  &Request,
@@ -1486,17 +1593,20 @@ StoreTransactionStart(
                                  XS_TRANSACTION_START,
                                  "", 1,
                                  NULL, 0);
-    ASSERT(NT_SUCCESS(status));
+
+    KeReleaseSpinLock(&Context->Lock, Irql);
+    if (!NT_SUCCESS(status))
+        goto fail2;
 
     Response = StoreSubmitRequest(Context, &Request);
 
     status = STATUS_NO_MEMORY;
     if (Response == NULL)
-        goto fail2;
+        goto fail3;
 
     status = StoreCheckResponse(Response);
     if (!NT_SUCCESS(status))
-        goto fail3;
+        goto fail4;
 
     (*Transaction)->Id = (uint32_t)strtoul(Response->Segment[XENBUS_STORE_RESPONSE_PAYLOAD_SEGMENT].Data,
                                            NULL,
@@ -1513,20 +1623,24 @@ StoreTransactionStart(
 
     return STATUS_SUCCESS;
 
-fail3:
-    Error("fail3\n");
+fail4:
+    Error("fail4\n");
 
     StoreFreeResponse(Response);
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
+
+fail3:
+    Error("fail3\n");
+
+fail2:
+    Error("fail2\n");
 
     (*Transaction)->Caller = NULL;
     (*Transaction)->Magic = 0;
 
     ASSERT(IsZeroMemory(*Transaction, sizeof (XENBUS_STORE_TRANSACTION)));
     __StoreFree(*Transaction);
-
-fail2:
-    Error("fail2\n");
+    *Transaction = NULL;
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -1536,9 +1650,9 @@ fail1:
 
 static NTSTATUS
 StoreTransactionEnd(
-    IN  PINTERFACE                  Interface,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction,
-    IN  BOOLEAN                     Commit
+    _In_ PINTERFACE                 Interface,
+    _In_ PXENBUS_STORE_TRANSACTION  Transaction,
+    _In_ BOOLEAN                    Commit
     )
 {
     PXENBUS_STORE_CONTEXT           Context = Interface->Context;
@@ -1549,15 +1663,13 @@ StoreTransactionEnd(
 
     ASSERT3U(Transaction->Magic, ==, STORE_TRANSACTION_MAGIC);
 
+    RtlZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST));
+
     KeAcquireSpinLock(&Context->Lock, &Irql);
 
     status = STATUS_RETRY;
     if (!Transaction->Active)
         goto done;
-
-    KeReleaseSpinLock(&Context->Lock, Irql);
-
-    RtlZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST));
 
     status = StorePrepareRequest(Context,
                                  &Request,
@@ -1565,17 +1677,21 @@ StoreTransactionEnd(
                                  XS_TRANSACTION_END,
                                  (Commit) ? "T" : "F", 2,
                                  NULL, 0);
-    ASSERT(NT_SUCCESS(status));
+
+    KeReleaseSpinLock(&Context->Lock, Irql);
+
+    if (!NT_SUCCESS(status))
+        goto fail1;
 
     Response = StoreSubmitRequest(Context, &Request);
 
     status = STATUS_NO_MEMORY;
     if (Response == NULL)
-        goto fail1;
+        goto fail2;
 
     status = StoreCheckResponse(Response);
     if (!NT_SUCCESS(status) && status != STATUS_RETRY)
-        goto fail2;
+        goto fail3;
 
     StoreFreeResponse(Response);
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
@@ -1599,12 +1715,19 @@ done:
 
     return status;
 
-fail2:
+fail3:
+    Error("fail3\n");
+
     ASSERT3U(status, !=, STATUS_RETRY);
 
     StoreFreeResponse(Response);
 
+fail2:
+    Error("fail2\n");
+
 fail1:
+    Error("fail1 (%08x)\n", status);
+
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
 
     return status;
@@ -1612,30 +1735,34 @@ fail1:
 
 static NTSTATUS
 StoreWatchAdd(
-    IN  PINTERFACE              Interface,
-    IN  PCHAR                   Prefix OPTIONAL,
-    IN  PCHAR                   Node,
-    IN  PKEVENT                 Event,
-    OUT PXENBUS_STORE_WATCH     *Watch
+    _In_ PINTERFACE                 Interface,
+    _In_opt_ PSTR                   Prefix,
+    _In_ PSTR                       Node,
+    _In_ PKEVENT                    Event,
+    _Outptr_ PXENBUS_STORE_WATCH    *Watch
     )
 {
-    PXENBUS_STORE_CONTEXT       Context = Interface->Context;
-    ULONG                       Length;
-    PCHAR                       Path;
-    CHAR                        Token[TOKEN_LENGTH];
-    XENBUS_STORE_REQUEST        Request;
-    PXENBUS_STORE_RESPONSE      Response;
-    KIRQL                       Irql;
-    NTSTATUS                    status;
+    PXENBUS_STORE_CONTEXT           Context = Interface->Context;
+    ULONG                           Length;
+    PSTR                            Path;
+    CHAR                            Token[TOKEN_LENGTH];
+    XENBUS_STORE_REQUEST            Request;
+    PXENBUS_STORE_RESPONSE          Response;
+    KIRQL                           Irql;
+    NTSTATUS                        status;
+
+    status = StoreCheckPathLength(Prefix, Node);
+    if (!NT_SUCCESS(status))
+        goto fail1;
 
     *Watch = __StoreAllocate(sizeof (XENBUS_STORE_WATCH));
 
     status = STATUS_NO_MEMORY;
     if (*Watch == NULL)
-        goto fail1;
+        goto fail2;
 
     (*Watch)->Magic = STORE_WATCH_MAGIC;
-    (VOID) RtlCaptureStackBackTrace(1, 1, &(*Watch)->Caller, NULL);    
+    (VOID) RtlCaptureStackBackTrace(1, 1, &(*Watch)->Caller, NULL);
 
     if (Prefix == NULL)
         Length = (ULONG)strlen(Node) + sizeof (CHAR);
@@ -1646,13 +1773,13 @@ StoreWatchAdd(
 
     status = STATUS_NO_MEMORY;
     if (Path == NULL)
-        goto fail2;
+        goto fail3;
 
     status = (Prefix == NULL) ?
              RtlStringCbPrintfA(Path, Length, "%s", Node) :
              RtlStringCbPrintfA(Path, Length, "%s/%s", Prefix, Node);
     ASSERT(NT_SUCCESS(status));
-    
+
     (*Watch)->Path = Path;
     (*Watch)->Event = Event;
 
@@ -1672,39 +1799,45 @@ StoreWatchAdd(
 
     RtlZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST));
 
+    KeAcquireSpinLock(&Context->Lock, &Irql);
+
     status = StorePrepareRequest(Context,
                                  &Request,
                                  NULL,
                                  XS_WATCH,
                                  Path, strlen(Path),
                                  "", 1,
-                                 Token, strlen(Token), 
+                                 Token, strlen(Token),
                                  "", 1,
                                  NULL, 0);
-    ASSERT(NT_SUCCESS(status));
+
+    KeReleaseSpinLock(&Context->Lock, Irql);
+
+    if (!NT_SUCCESS(status))
+        goto fail4;
 
     Response = StoreSubmitRequest(Context, &Request);
 
     status = STATUS_NO_MEMORY;
     if (Response == NULL)
-        goto fail3;
+        goto fail5;
 
     status = StoreCheckResponse(Response);
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail6;
 
     StoreFreeResponse(Response);
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
 
     return STATUS_SUCCESS;
 
-fail4:
-    Error("fail4\n");
+fail6:
+    Error("fail6\n");
 
     StoreFreeResponse(Response);
 
-fail3:
-    Error("fail3\n");
+fail5:
+    Error("fail5\n");
 
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
 
@@ -1721,14 +1854,21 @@ fail3:
 
     __StoreFree(Path);
 
-fail2:
-    Error("fail2\n");
+fail4:
+    Error("fail4\n");
+
+fail3:
+    Error("fail3\n");
 
     (*Watch)->Caller = NULL;
     (*Watch)->Magic = 0;
 
     ASSERT(IsZeroMemory(*Watch, sizeof (XENBUS_STORE_WATCH)));
     __StoreFree(*Watch);
+    *Watch = NULL;
+
+fail2:
+    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -1738,12 +1878,12 @@ fail1:
 
 static NTSTATUS
 StoreWatchRemove(
-    IN  PINTERFACE              Interface,
-    IN  PXENBUS_STORE_WATCH     Watch
+    _In_ PINTERFACE             Interface,
+    _In_ PXENBUS_STORE_WATCH    Watch
     )
 {
     PXENBUS_STORE_CONTEXT       Context = Interface->Context;
-    PCHAR                       Path;
+    PSTR                        Path;
     CHAR                        Token[TOKEN_LENGTH];
     XENBUS_STORE_REQUEST        Request;
     PXENBUS_STORE_RESPONSE      Response;
@@ -1753,13 +1893,6 @@ StoreWatchRemove(
     ASSERT3U(Watch->Magic, ==, STORE_WATCH_MAGIC);
 
     Path = Watch->Path;
-
-    KeAcquireSpinLock(&Context->Lock, &Irql);
-
-    if (!Watch->Active)
-        goto done;
-
-    KeReleaseSpinLock(&Context->Lock, Irql);
 
     status = RtlStringCbPrintfA(Token,
                                 sizeof (Token),
@@ -1771,26 +1904,35 @@ StoreWatchRemove(
 
     RtlZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST));
 
+    KeAcquireSpinLock(&Context->Lock, &Irql);
+
+    if (!Watch->Active)
+        goto done;
+
     status = StorePrepareRequest(Context,
                                  &Request,
                                  NULL,
                                  XS_UNWATCH,
                                  Path, strlen(Path),
                                  "", 1,
-                                 Token, strlen(Token), 
+                                 Token, strlen(Token),
                                  "", 1,
                                  NULL, 0);
-    ASSERT(NT_SUCCESS(status));
+
+    KeReleaseSpinLock(&Context->Lock, Irql);
+
+    if (!NT_SUCCESS(status))
+        goto fail1;
 
     Response = StoreSubmitRequest(Context, &Request);
 
     status = STATUS_NO_MEMORY;
     if (Response == NULL)
-        goto fail1;
+        goto fail2;
 
     status = StoreCheckResponse(Response);
     if (!NT_SUCCESS(status))
-        goto fail2;
+        goto fail3;
 
     StoreFreeResponse(Response);
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
@@ -1818,10 +1960,13 @@ done:
 
     return STATUS_SUCCESS;
 
-fail2:
-    Error("fail2\n");
+fail3:
+    Error("fail3\n");
 
     StoreFreeResponse(Response);
+
+fail2:
+    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -1833,7 +1978,7 @@ fail1:
 
 static VOID
 StorePoll(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     __StorePoll(Interface->Context);
@@ -1848,8 +1993,8 @@ StorePoll(
 
 static NTSTATUS
 StoreWatchdog(
-    IN  PXENBUS_THREAD                  Self,
-    IN  PVOID                           _Context
+    _In_ PXENBUS_THREAD                 Self,
+    _In_ PVOID                          _Context
     )
 {
     PXENBUS_STORE_CONTEXT               Context = _Context;
@@ -1928,10 +2073,11 @@ StoreWatchdog(
 
 static NTSTATUS
 StorePermissionToString(
-    IN  PXENBUS_STORE_PERMISSION    Permission,
-    OUT PCHAR                       Buffer,
-    IN  ULONG                       BufferSize,
-    OUT PULONG                      UsedSize
+    _In_ PXENBUS_STORE_PERMISSION   Permission,
+    _Out_writes_to_(BufferSize, *UsedSize)
+    PSTR                            Buffer,
+    _In_ ULONG                      BufferSize,
+    _Out_ PULONG                    UsedSize
     )
 {
     size_t                          Remaining;
@@ -1939,7 +2085,7 @@ StorePermissionToString(
 
     ASSERT(BufferSize > 1);
 
-    switch (Permission->Mask) {
+    switch ((ULONG)Permission->Mask) {
     case XENBUS_STORE_PERM_NONE:
         *Buffer = 'n';
         break;
@@ -1986,30 +2132,35 @@ fail1:
 
 static NTSTATUS
 StorePermissionsSet(
-    IN  PINTERFACE                  Interface,
-    IN  PXENBUS_STORE_TRANSACTION   Transaction OPTIONAL,
-    IN  PCHAR                       Prefix OPTIONAL,
-    IN  PCHAR                       Node,
-    IN  PXENBUS_STORE_PERMISSION    Permissions,
-    IN  ULONG                       NumberPermissions
+    _In_ PINTERFACE                     Interface,
+    _In_opt_ PXENBUS_STORE_TRANSACTION  Transaction,
+    _In_opt_ PSTR                       Prefix,
+    _In_ PSTR                           Node,
+    _In_ PXENBUS_STORE_PERMISSION       Permissions,
+    _In_ ULONG                          NumberPermissions
     )
 {
-    PXENBUS_STORE_CONTEXT           Context = Interface->Context;
-    XENBUS_STORE_REQUEST            Request;
-    PXENBUS_STORE_RESPONSE          Response;
-    NTSTATUS                        status;
-    ULONG                           Index;
-    ULONG                           Length;
-    ULONG                           Used;
-    PCHAR                           Path;
-    PCHAR                           PermissionString;
-    PCHAR                           Segment;
+    PXENBUS_STORE_CONTEXT               Context = Interface->Context;
+    XENBUS_STORE_REQUEST                Request;
+    KIRQL                               Irql;
+    PXENBUS_STORE_RESPONSE              Response;
+    NTSTATUS                            status;
+    ULONG                               Index;
+    ULONG                               Length;
+    ULONG                               Used;
+    PSTR                                Path;
+    PSTR                                PermissionString;
+    PSTR                                Segment;
+
+    status = StoreCheckPathLength(Prefix, Node);
+    if (!NT_SUCCESS(status))
+        goto fail1;
 
     PermissionString = __StoreAllocate(XENSTORE_PAYLOAD_MAX);
 
     status = STATUS_NO_MEMORY;
     if (PermissionString == NULL)
-        goto fail1;
+        goto fail2;
 
     if (Prefix == NULL)
         Length = (ULONG)strlen(Node) + sizeof (CHAR);
@@ -2019,7 +2170,7 @@ StorePermissionsSet(
     Path = __StoreAllocate(Length);
 
     if (Path == NULL)
-        goto fail2;
+        goto fail3;
 
     status = (Prefix == NULL) ?
              RtlStringCbPrintfA(Path, Length, "%s", Node) :
@@ -2036,11 +2187,13 @@ StorePermissionsSet(
                                          Length,
                                          &Used);
         if (!NT_SUCCESS(status))
-            goto fail3;
+            goto fail4;
 
         Segment += Used;
         Length -= Used;
     }
+
+    KeAcquireSpinLock(&Context->Lock, &Irql);
 
     status = StorePrepareRequest(Context,
                                  &Request,
@@ -2050,18 +2203,21 @@ StorePermissionsSet(
                                  "", 1,
                                  PermissionString, XENSTORE_PAYLOAD_MAX - Length,
                                  NULL, 0);
+
+    KeReleaseSpinLock(&Context->Lock, Irql);
+
     if (!NT_SUCCESS(status))
-        goto fail4;
+        goto fail5;
 
     Response = StoreSubmitRequest(Context, &Request);
 
     status = STATUS_NO_MEMORY;
     if (Response == NULL)
-        goto fail5;
+        goto fail6;
 
     status = StoreCheckResponse(Response);
     if (!NT_SUCCESS(status))
-        goto fail6;
+        goto fail7;
 
     StoreFreeResponse(Response);
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
@@ -2071,9 +2227,12 @@ StorePermissionsSet(
 
     return STATUS_SUCCESS;
 
+fail7:
+    Error("fail7\n");
+    StoreFreeResponse(Response);
+
 fail6:
     Error("fail6\n");
-    StoreFreeResponse(Response);
 
 fail5:
     Error("fail5\n");
@@ -2081,16 +2240,16 @@ fail5:
 fail4:
     Error("fail4\n");
 
-fail3:
-    Error("fail3\n");
-
     __StoreFree(Path);
     ASSERT(IsZeroMemory(&Request, sizeof (XENBUS_STORE_REQUEST)));
 
-fail2:
-    Error("fail2\n");
+fail3:
+    Error("fail3\n");
 
     __StoreFree(PermissionString);
+
+fail2:
+    Error("fail2\n");
 
 fail1:
     Error("fail1 (%08x)\n", status);
@@ -2104,11 +2263,11 @@ _IRQL_requires_(HIGH_LEVEL)
 _IRQL_requires_same_
 BOOLEAN
 StoreEvtchnCallback(
-    IN  PKINTERRUPT InterruptObject,
-    IN  PVOID       Argument
+    _In_ PKINTERRUPT        InterruptObject,
+    _In_ PVOID              Argument
     )
 {
-    PXENBUS_STORE_CONTEXT  Context = Argument;
+    PXENBUS_STORE_CONTEXT   Context = Argument;
 
     UNREFERENCED_PARAMETER(InterruptObject);
 
@@ -2124,7 +2283,7 @@ StoreEvtchnCallback(
 
 static VOID
 StoreDisable(
-    IN PXENBUS_STORE_CONTEXT    Context
+    _In_ PXENBUS_STORE_CONTEXT  Context
     )
 {
     LogPrintf(LOG_LEVEL_INFO,
@@ -2140,7 +2299,7 @@ StoreDisable(
 
 static VOID
 StoreEnable(
-    IN PXENBUS_STORE_CONTEXT    Context
+    _In_ PXENBUS_STORE_CONTEXT  Context
     )
 {
     ULONGLONG                   Value;
@@ -2148,7 +2307,7 @@ StoreEnable(
     NTSTATUS                    status;
 
     status = HvmGetParam(HVM_PARAM_STORE_EVTCHN, &Value);
-    ASSERT(NT_SUCCESS(status));
+    BUG_ON(!NT_SUCCESS(status));
 
     Port = (ULONG)Value;
 
@@ -2178,10 +2337,10 @@ StoreEnable(
         Context->Dpcs++;
 }
 
-static
+static NTSTATUS
 StoreGetAddress(
-    IN  PXENBUS_STORE_CONTEXT   Context,
-    OUT PPHYSICAL_ADDRESS       Address
+    _In_ PXENBUS_STORE_CONTEXT  Context,
+    _Out_ PPHYSICAL_ADDRESS     Address
     )
 {
     PFN_NUMBER                  Pfn;
@@ -2212,7 +2371,7 @@ fail1:
 
 static VOID
 StoreSuspendCallbackEarly(
-    IN  PVOID               Argument
+    _In_ PVOID              Argument
     )
 {
     PXENBUS_STORE_CONTEXT   Context = Argument;
@@ -2241,7 +2400,7 @@ StoreSuspendCallbackEarly(
 
 static VOID
 StoreSuspendCallbackLate(
-    IN  PVOID                           Argument
+    _In_ PVOID                          Argument
     )
 {
     PXENBUS_STORE_CONTEXT               Context = Argument;
@@ -2275,8 +2434,8 @@ StoreSuspendCallbackLate(
 
 static VOID
 StoreDebugCallback(
-    IN  PVOID               Argument,
-    IN  BOOLEAN             Crashing
+    _In_ PVOID              Argument,
+    _In_ BOOLEAN            Crashing
     )
 {
     PXENBUS_STORE_CONTEXT   Context = Argument;
@@ -2323,7 +2482,7 @@ StoreDebugCallback(
              ListEntry != &(Context->BufferList);
              ListEntry = ListEntry->Flink) {
             PXENBUS_STORE_BUFFER    Buffer;
-            PCHAR                   Name;
+            PSTR                    Name;
             ULONG_PTR               Offset;
 
             Buffer = CONTAINING_RECORD(ListEntry, XENBUS_STORE_BUFFER, ListEntry);
@@ -2358,7 +2517,7 @@ StoreDebugCallback(
              ListEntry != &(Context->WatchList);
              ListEntry = ListEntry->Flink) {
             PXENBUS_STORE_WATCH Watch;
-            PCHAR               Name;
+            PSTR                Name;
             ULONG_PTR           Offset;
 
             Watch = CONTAINING_RECORD(ListEntry, XENBUS_STORE_WATCH, ListEntry);
@@ -2397,7 +2556,7 @@ StoreDebugCallback(
              ListEntry != &(Context->TransactionList);
              ListEntry = ListEntry->Flink) {
             PXENBUS_STORE_TRANSACTION   Transaction;
-            PCHAR                       Name;
+            PSTR                        Name;
             ULONG_PTR                   Offset;
 
             Transaction = CONTAINING_RECORD(ListEntry, XENBUS_STORE_TRANSACTION, ListEntry);
@@ -2426,7 +2585,7 @@ StoreDebugCallback(
 
 static NTSTATUS
 StoreAcquire(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENBUS_STORE_CONTEXT   Context = Interface->Context;
@@ -2570,11 +2729,11 @@ fail1:
 
 static VOID
 StoreRelease(
-    IN  PINTERFACE          Interface
+    _In_ PINTERFACE         Interface
     )
 {
     PXENBUS_STORE_CONTEXT   Context = Interface->Context;
-    KIRQL                   Irql;    
+    KIRQL                   Irql;
 
     KeAcquireSpinLock(&Context->Lock, &Irql);
 
@@ -2630,22 +2789,6 @@ done:
     KeReleaseSpinLock(&Context->Lock, Irql);
 }
 
-static struct _XENBUS_STORE_INTERFACE_V1 StoreInterfaceVersion1 = {
-    { sizeof (struct _XENBUS_STORE_INTERFACE_V1), 1, NULL, NULL, NULL },
-    StoreAcquire,
-    StoreRelease,
-    StoreFree,
-    StoreRead,
-    StorePrintf,
-    StoreRemove,
-    StoreDirectory,
-    StoreTransactionStart,
-    StoreTransactionEnd,
-    StoreWatchAdd,
-    StoreWatchRemove,
-    StorePoll
-};
-                     
 static struct _XENBUS_STORE_INTERFACE_V2 StoreInterfaceVersion2 = {
     { sizeof (struct _XENBUS_STORE_INTERFACE_V2), 2, NULL, NULL, NULL },
     StoreAcquire,
@@ -2665,13 +2808,13 @@ static struct _XENBUS_STORE_INTERFACE_V2 StoreInterfaceVersion2 = {
 
 NTSTATUS
 StoreInitialize(
-    IN  PXENBUS_FDO             Fdo,
-    OUT PXENBUS_STORE_CONTEXT   *Context
+    _In_ PXENBUS_FDO                Fdo,
+    _Outptr_ PXENBUS_STORE_CONTEXT  *Context
     )
 {
-    LARGE_INTEGER               Now;
-    ULONG                       Seed;
-    NTSTATUS                    status;
+    LARGE_INTEGER                   Now;
+    ULONG                           Seed;
+    NTSTATUS                        status;
 
     Trace("====>\n");
 
@@ -2780,34 +2923,17 @@ fail1:
 
 NTSTATUS
 StoreGetInterface(
-    IN      PXENBUS_STORE_CONTEXT   Context,
-    IN      ULONG                   Version,
-    IN OUT  PINTERFACE              Interface,
-    IN      ULONG                   Size
+    _In_ PXENBUS_STORE_CONTEXT  Context,
+    _In_ ULONG                  Version,
+    _Inout_ PINTERFACE          Interface,
+    _In_ ULONG                  Size
     )
 {
-    NTSTATUS                        status;
+    NTSTATUS                    status;
 
     ASSERT(Context != NULL);
 
     switch (Version) {
-    case 1: {
-        struct _XENBUS_STORE_INTERFACE_V1  *StoreInterface;
-
-        StoreInterface = (struct _XENBUS_STORE_INTERFACE_V1 *)Interface;
-
-        status = STATUS_BUFFER_OVERFLOW;
-        if (Size < sizeof (struct _XENBUS_STORE_INTERFACE_V1))
-            break;
-
-        *StoreInterface = StoreInterfaceVersion1;
-
-        ASSERT3U(Interface->Version, ==, Version);
-        Interface->Context = Context;
-
-        status = STATUS_SUCCESS;
-        break;
-    }
     case 2: {
         struct _XENBUS_STORE_INTERFACE_V2  *StoreInterface;
 
@@ -2831,11 +2957,11 @@ StoreGetInterface(
     }
 
     return status;
-}   
+}
 
 ULONG
 StoreGetReferences(
-    IN  PXENBUS_STORE_CONTEXT   Context
+    _In_ PXENBUS_STORE_CONTEXT  Context
     )
 {
     return Context->References;
@@ -2843,7 +2969,7 @@ StoreGetReferences(
 
 VOID
 StoreTeardown(
-    IN  PXENBUS_STORE_CONTEXT   Context
+    _In_ PXENBUS_STORE_CONTEXT  Context
     )
 {
     Trace("====>\n");

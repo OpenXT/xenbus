@@ -1,31 +1,32 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, 
- * with or without modification, are permitted provided 
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted provided
  * that the following conditions are met:
- * 
- * *   Redistributions of source code must retain the above 
- *     copyright notice, this list of conditions and the 
+ *
+ * *   Redistributions of source code must retain the above
+ *     copyright notice, this list of conditions and the
  *     following disclaimer.
- * *   Redistributions in binary form must reproduce the above 
- *     copyright notice, this list of conditions and the 
- *     following disclaimer in the documentation and/or other 
+ * *   Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the
+ *     following disclaimer in the documentation and/or other
  *     materials provided with the distribution.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
 
@@ -33,22 +34,26 @@
 
 #include <ntddk.h>
 #include <xen.h>
+#include <intrin.h>
 
 #include "process.h"
 #include "dbg_print.h"
 #include "assert.h"
 
+typedef PSTR (*GET_PROCESS_IMAGE_NAME)(PEPROCESS Process);
+
 typedef struct _PROCESS_CONTEXT {
-    LONG            References;
+    LONG                    References;
+    GET_PROCESS_IMAGE_NAME  PsGetProcFileName;
 } PROCESS_CONTEXT, *PPROCESS_CONTEXT;
 
 static PROCESS_CONTEXT  ProcessContext;
 
 static VOID
 ProcessNotify(
-    IN  HANDLE                      ParentId,
-    IN  HANDLE                      ProcessId,
-    IN  BOOLEAN                     Create
+    _In_ HANDLE                     ParentId,
+    _In_ HANDLE                     ProcessId,
+    _In_ BOOLEAN                    Create
     )
 {
     KIRQL                           Irql;
@@ -66,10 +71,28 @@ ProcessNotify(
 
     KeRaiseIrql(DISPATCH_LEVEL, &Irql);
 
-    Address.QuadPart = __readcr3();   
+    Address.QuadPart = __readcr3();
     (VOID)HvmPagetableDying(Address);
 
     KeLowerIrql(Irql);
+}
+
+PSTR
+ProcessGetImageFileName(
+    _In_ PEPROCESS  Process
+    )
+{
+    PPROCESS_CONTEXT    Context = &ProcessContext;
+
+    if (Context->PsGetProcFileName == NULL)
+        goto fail1;
+
+    return Context->PsGetProcFileName(Process);
+
+fail1:
+    Error("Fail1 (process=%p)\n", Process);
+
+    return NULL;
 }
 
 VOID
@@ -78,6 +101,8 @@ ProcessTeardown(
     )
 {
     PPROCESS_CONTEXT    Context = &ProcessContext;
+
+    Context->PsGetProcFileName = NULL;
 
     (VOID) PsSetCreateProcessNotifyRoutine(ProcessNotify, TRUE);
 
@@ -88,11 +113,12 @@ ProcessTeardown(
 
 NTSTATUS
 ProcessInitialize(
-    VOID              
+    VOID
     )
 {
     PPROCESS_CONTEXT    Context = &ProcessContext;
     ULONG               References;
+    UNICODE_STRING      Unicode;
     NTSTATUS            status;
 
     References = InterlockedIncrement(&Context->References);
@@ -104,6 +130,12 @@ ProcessInitialize(
     status = PsSetCreateProcessNotifyRoutine(ProcessNotify, FALSE);
     if (!NT_SUCCESS(status))
         goto fail2;
+
+    RtlInitUnicodeString(&Unicode, L"PsGetProcessImageFileName");
+
+    Context->PsGetProcFileName = (GET_PROCESS_IMAGE_NAME)MmGetSystemRoutineAddress(&Unicode);
+    if (Context->PsGetProcFileName == NULL)
+        Warning("Unable to get PsGetProcessImageFileName Address\n");
 
     return STATUS_SUCCESS;
 

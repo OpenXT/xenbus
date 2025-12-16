@@ -1,4 +1,5 @@
-/* Copyright (c) Citrix Systems Inc.
+/* Copyright (c) Xen Project.
+ * Copyright (c) Cloud Software Group, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms,
@@ -48,6 +49,11 @@
 
 #define UNPLUG_TAG  'LPNU'
 
+typedef struct _UNPLUG_DATA {
+    PSTR        Name;
+    BOOLEAN     Found;
+} UNPLUG_DATA, *PUNPLUG_DATA;
+
 typedef struct _UNPLUG_CONTEXT {
     LONG        References;
     HIGH_LOCK   Lock;
@@ -60,7 +66,7 @@ static UNPLUG_CONTEXT   UnplugContext;
 
 static FORCEINLINE PVOID
 __UnplugAllocate(
-    IN  ULONG   Length
+    _In_ ULONG  Length
     )
 {
     return __AllocatePoolWithTag(NonPagedPool, Length, UNPLUG_TAG);
@@ -68,7 +74,7 @@ __UnplugAllocate(
 
 static FORCEINLINE VOID
 __UnplugFree(
-    IN  PVOID   Buffer
+    _In_ PVOID  Buffer
     )
 {
     __FreePoolWithTag(Buffer, UNPLUG_TAG);
@@ -82,7 +88,7 @@ UnplugSetBootEmulated(
     PUNPLUG_CONTEXT Context = &UnplugContext;
     CHAR            Key[] = "XEN:BOOT_EMULATED=";
     PANSI_STRING    Option;
-    PCHAR           Value;
+    PSTR            Value;
     NTSTATUS        status;
 
     status = RegistryQuerySystemStartOption(Key, &Option);
@@ -101,7 +107,7 @@ UnplugSetBootEmulated(
 
 static VOID
 UnplugDeviceType(
-    IN  UNPLUG_TYPE Type
+    _In_ UNPLUG_TYPE    Type
     )
 {
     PUNPLUG_CONTEXT Context = &UnplugContext;
@@ -185,14 +191,84 @@ fail1:
     return status;
 }
 
+static NTSTATUS
+UnplugCheckEnumKeyCallback(
+    _In_ PVOID          Context,
+    _In_ HANDLE         Key,
+    _In_ PANSI_STRING   Name
+    )
+{
+    PUNPLUG_DATA        Data = Context;
+
+    UNREFERENCED_PARAMETER(Key);
+
+    if (strstr(Name->Buffer, Data->Name) != NULL)
+        Data->Found = TRUE;
+
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+UnplugCheckEnumKey(
+    _In_ PSTR           EnumName,
+    _Out_ PULONG        Value
+    )
+{
+    UNICODE_STRING      Unicode;
+    UNPLUG_DATA         Data;
+    HANDLE              Key;
+    NTSTATUS            status;
+
+    RtlInitUnicodeString(&Unicode, L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Enum\\XENBUS");
+
+    status = RegistryOpenKey(NULL,
+                             &Unicode,
+                             KEY_READ,
+                             &Key);
+    if (!NT_SUCCESS(status))
+        goto fail1;
+
+    Data.Found = FALSE;
+    Data.Name = EnumName;
+
+    status = RegistryEnumerateSubKeys(Key,
+                                      UnplugCheckEnumKeyCallback,
+                                      &Data);
+    if (!NT_SUCCESS(status))
+        goto fail2;
+
+    if (!Data.Found) {
+        Info("VETO Unplug %s\n", EnumName);
+        *Value = 0;
+    }
+
+    RegistryCloseKey(Key);
+
+    return STATUS_SUCCESS;
+
+fail2:
+    Error("fail2\n");
+
+    RegistryCloseKey(Key);
+
+fail1:
+    Error("fail1 %08x\n", status);
+
+    *Value = 0;
+
+    return status;
+}
+
 static VOID
 UnplugSetRequest(
-    IN  UNPLUG_TYPE     Type
+    _In_ UNPLUG_TYPE    Type
     )
 {
     PUNPLUG_CONTEXT     Context = &UnplugContext;
     HANDLE              UnplugKey;
-    PCHAR               ValueName;
+    HANDLE              ForceUnplugKey;
+    PSTR                ValueName;
+    PSTR                EnumName;
     ULONG               Value;
     KIRQL               Irql;
     NTSTATUS            status;
@@ -202,18 +278,28 @@ UnplugSetRequest(
     ASSERT3U(KeGetCurrentIrql(), ==, PASSIVE_LEVEL);
 
     UnplugKey = DriverGetUnplugKey();
+    ForceUnplugKey = DriverGetForceUnplugKey();
 
     switch (Type) {
     case UNPLUG_DISKS:
         ValueName = "DISKS";
+        EnumName = "VBD";
         break;
     case UNPLUG_NICS:
         ValueName = "NICS";
+        EnumName = "VIF";
         break;
     default:
         ValueName = NULL;
+        EnumName = NULL;
         ASSERT(FALSE);
     }
+
+    status = RegistryQueryDwordValue(ForceUnplugKey,
+                                     ValueName,
+                                     &Value);
+    if (NT_SUCCESS(status) && Value)
+        goto unplug;
 
     status = RegistryQueryDwordValue(UnplugKey,
                                      ValueName,
@@ -221,6 +307,10 @@ UnplugSetRequest(
     if (!NT_SUCCESS(status))
         goto done;
 
+    if (Value != 0)
+        (VOID) UnplugCheckEnumKey(EnumName, &Value);
+
+unplug:
     (VOID) RegistryDeleteValue(UnplugKey, ValueName);
 
     Info("%s (%u)\n", ValueName, Value);
@@ -236,11 +326,11 @@ done:
 XEN_API
 NTSTATUS
 UnplugIncrementValue(
-    IN  UNPLUG_TYPE     Type
+    _In_ UNPLUG_TYPE    Type
     )
 {
     HANDLE              UnplugKey;
-    PCHAR               ValueName;
+    PSTR                ValueName;
     ULONG               Value;
     NTSTATUS            status;
 
@@ -287,11 +377,11 @@ fail1:
 XEN_API
 NTSTATUS
 UnplugDecrementValue(
-    IN  UNPLUG_TYPE     Type
+    _In_ UNPLUG_TYPE    Type
     )
 {
     HANDLE              UnplugKey;
-    PCHAR               ValueName;
+    PSTR                ValueName;
     LONG                Value;
     NTSTATUS            status;
 
@@ -341,6 +431,23 @@ fail1:
     Error("fail1 (%08x)\n", status);
 
     return status;
+}
+
+XEN_API
+BOOLEAN
+UnplugGetRequest(
+    _In_ UNPLUG_TYPE    Type
+    )
+{
+    PUNPLUG_CONTEXT     Context = &UnplugContext;
+    KIRQL               Irql;
+    BOOLEAN             Request;
+
+    AcquireHighLock(&Context->Lock, &Irql);
+    Request = Context->Request[Type];
+    ReleaseHighLock(&Context->Lock, Irql);
+
+    return Request;
 }
 
 XEN_API
